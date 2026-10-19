@@ -1,0 +1,57 @@
+[简体中文](README.zh_CN.md) · English
+
+# go-voice macOS app
+
+`go-voice` is the macOS 26+ Apple Silicon desktop host for Go Voice, built with MyGo. Its independent Go module is `github.com/vfasky/my-ai-audio/gui`, and its bundle identifier is `yz.sh.mygo-go-voice`.
+
+The native `go-voice` UI has four pages: device and current speech, vocabulary, AI refinement, and firmware installation. It is dark only and follows the macOS 26 layout: a floating Liquid Glass sidebar with inset traffic lights, a toolbar over a soft scroll edge, and grouped-inset sections. Graphite cards, black wells, white primary capsules and a single orange accent reserved for live audio follow the design reference; the FoloToy AI Passport waveform mirrors the newest peaks outward from the centre and falls back to dim dots while idle; the same single well pulses orange during recognition, refinement and insertion. It scans without choosing a device automatically. A user-selected peripheral UUID is persisted for reconnects. The device page shows firmware, handshake state, the unauthenticated V1 warning, waveform, RMS/peak, duration, partial transcription, final ASR original, refinement, and frame diagnostics. Audio is neither saved nor replayed.
+
+## Build and validate
+
+Prerequisites: Apple Silicon, macOS 26 or newer, Go 1.27.1, Rust/Cargo (including the `aarch64-apple-darwin` target), Bun (`WAKU_BUN_EXECUTABLE` may select the bundled runtime), and an Xcode SDK containing SpeechAnalyzer and FoundationModels. Go dependencies are pinned in `go.mod` and `go.sum`; Rust dependencies must be pinned in `firmware-helper/Cargo.lock`. First run `./tools/validate.sh --firmware` from the repository root to produce both verified firmware artifacts.
+
+```bash
+cd gui
+./scripts/validate.sh
+# Or build only:
+./scripts/build.sh
+# Signed debug session with watch:
+./scripts/dev.sh
+```
+
+`dev.sh` keeps the firmware and native-helper staging for the session, builds the signed debug app, and launches it through LaunchServices (`open`) so TCC attributes Bluetooth and Speech to go-voice itself. When Go sources, `go.mod`/`go.sum`, `mygo.json`, the icon or entitlements change, it rebuilds; a successful build quits the running app (SIGTERM, so helpers shut down) and starts the new one, while a failed build keeps the running app. App output goes to `gui/build/dev.log`. Quitting the app or Ctrl+C ends the session and removes the staging. Swift or Rust helper changes need a new session. `mygo dev` is not used because it spawns the app as its own child, making the launching terminal TCC-responsible, which terminates BluetoothHelper. `MYGO_SIGN_IDENTITY` selects a signing identity (ad hoc by default).
+
+The validation script runs firmware packaging fixture tests, Cargo formatting/tests/Clippy, gofmt, `go test ./...`, `go vet ./...`, and Swift build/tests, then builds the three native helpers and MyGo debug app. It verifies the packaged firmware digest and manifest, nested and outer signatures, and arm64 executables. The result is `gui/build/debug/darwin-arm64/go-voice.app`. Launch the bundled app, rather than `go run`, so native resources and TCC identity resolve correctly. Building does not launch the app, request system permissions, access a FoloToy AI Passport, or touch USB devices.
+
+The same gate is available from the repository root as `./tools/validate.sh --gui`. GUI validation reads `build/FoloToy-AI-Passport.bin` without changing either root firmware artifact. The build temporarily stages `gui/firmware/go-voice-app.bin` and `manifest.json`, packages the directory into `Contents/Resources/firmware`, and removes staging on exit, including build failure. Firmware binaries are not retained in the source tree. `FirmwareHelper.app` ships in `Contents/Resources/native` with its own identity `yz.sh.mygo-go-voice.firmware-helper`; inner helpers are signed before the outer app.
+
+## Firmware installation contract
+
+USB installation writes only the bundled application at `0x10000`, with a maximum size of 3 MB. Before writing, the helper must verify the image digest/size, ESP32-C3 identity, 8 MB flash, partition-table integrity and the factory/cardid/recovery layout, plus the permanent-Recovery boot hook marker. Failed preflight must stop before any erase/write. There is no erase-all operation. Bootloader, partition table, device identity (`cardid` at `0x356000`) and permanent Recovery (`0x700000`) must remain intact.
+
+If installation fails, hold UP while powering on for five seconds to enter permanent Recovery and reinstall using the mini-program. The mini-program/community artifact remains `FoloToy-AI-Passport-full.bin`; the desktop app-only image is not a substitute for it. See the [acceptance record](docs/acceptance.md) for pending integrated and device checks.
+
+## Runtime and privacy
+
+`internal/app` is the only composition layer. UI callbacks emit intentions; background events return through `mygo.RunOnMain`. The coordinator owns session generation, cancellation, early audio buffering and terminal state. Go decodes independent ADPCM frames to 16 kHz, signed 16-bit little-endian mono PCM. The Swift subprocess receives that PCM directly and uses SpeechAnalyzer/SpeechTranscriber with volatile results and current vocabulary. It never creates a Mac microphone input.
+
+BluetoothHelper uses only the Go Voice UUIDs from the [authoritative BLE protocol](../docs/ai-passport-ble-protocol.md). The helper validates MTU and subscriptions before transmitting host_ready, retries acknowledged writes, reconnects with backoff, and shuts down when its parent exits. Both process boundaries have bounded NDJSON and canonical Base64. Audio buffers stay in memory.
+
+The startup model preparation checks/downloads and reserves zh-CN assets, then warms the analyzer. Privacy grants are checked at launch and requested before use, never mid-session: the Permissions page lists Bluetooth, Speech Recognition and Accessibility as required and Automation (System Events) as optional, shows each state, offers the system request while one can still appear and otherwise opens the matching Privacy & Security pane, and refreshes every two seconds while any is missing. If a required grant is missing once all are reported, the app opens that page; the device page also links to it. A session started without Speech Recognition ends immediately with that reason instead of a start timeout.
+
+During a session a dictation capsule floats at the bottom centre of the display with the pointer, above the Dock, on every Space: a cancel button (Escape is claimed system-wide only while the session runs), a short waveform, the newest words of the live transcript, and a confirm button that skips AI refinement and inserts the ASR original while refinement runs. It is a MyGo panel shown without taking the keyboard, and it hides before any paste so the text reaches the app you dictated into; a cancelled or failed session shows its reason for 1.5 seconds.
+
+go-voice is a menu-bar app: `LSUIElement` keeps it out of the Dock and the app switcher, and a template icon in the menu bar offers Settings… (Cmd+,, which shows the main window), Check for Updates… (a placeholder dialog with the current version until an update feed exists) and Quit. Closing the main window hides it; the app keeps running in the menu bar. The icon `gui/resources/tray.png` is derived from the transparent white logo by `"$WAKU_BUN_EXECUTABLE" gui/scripts/generate-tray-icon.mjs` (needs FFmpeg): cropped to the artwork, 36×36 px, black on transparent. Bluetooth, Speech, and Apple Events usage descriptions are included; microphone permission and audio-input entitlements are absent. Text insertion additionally depends on user-granted Accessibility access. Secure Input, missing Accessibility, or an unavailable target leaves the final text on the clipboard. Paste uses System Events with a CGEvent fallback and restores the previous clipboard only after 0.5 seconds if ownership is unchanged.
+
+Apple FoundationModels is the default refinement engine. Disabled, proper-name, light and structured modes are available. Failure, timeout, empty output or low character fidelity retains the final ASR original. A local failure never invokes the remote engine. Selecting and saving `remote` explicitly permits sending the final transcript and current vocabulary to the configured HTTPS OpenAI-compatible endpoint; audio is not sent. The settings page labels it as an OpenAI-compatible interface and offers two wire formats: Chat Completions (default) and Responses. Enter a base endpoint such as `https://provider.example/v1` and a model; the application appends `/chat/completions` or `/responses` accordingly. Responses requests set `store: false` and accept exactly one completed `message` output. API keys are stored only in macOS Keychain using Security.framework. They are not included in settings, logs, test fixtures or `mygo.json`.
+
+Settings and vocabulary are saved under `~/Library/Application Support/MyGo-GoVoice/` with restricted permissions. The vocabulary retains provenance, weight, lock state, creation and usage times, deduplicates normalized terms, and supplies at most 100 contextual strings per session. Transcripts are shown only for the current session; there is no persistent audio or transcript history.
+
+## Documentation
+
+- [Implementation and acceptance record](docs/acceptance.md)
+- [Third-party notices](docs/THIRD_PARTY_NOTICES.md)
+- [Root architecture](../docs/passport-audio-input-architecture.md)
+- [Root layout contract](../docs/project-structure.md)
+
+Build and host-test success does not establish physical-device or TCC acceptance. See the acceptance record for remaining checks.

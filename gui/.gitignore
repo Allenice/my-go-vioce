@@ -1,0 +1,6 @@
+/build/
+/firmware/
+/firmware-helper/target/
+/macos/.build/
+/resources/native/
+.DS_Store

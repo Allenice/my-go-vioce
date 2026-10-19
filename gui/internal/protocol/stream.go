@@ -1,0 +1,172 @@
+package protocol
+
+import (
+	"errors"
+	"math"
+	"time"
+)
+
+var ErrLimit = errors.New("audio recovery or session limit exceeded")
+
+type PCM struct {
+	Sequence uint32
+	Samples  [Samples]int16
+	Silence  bool
+}
+type Meter struct {
+	RMS, Peak                                float64
+	Bins                                     [32]float64
+	Received, Missing, Recovered, Duplicates uint32
+	Frames                                   uint32
+}
+
+func (m *Meter) Add(p PCM) {
+	var sum float64
+	m.Peak = 0
+	for _, s := range p.Samples {
+		x := float64(s) / 32768
+		sum += x * x
+		m.Peak = max(m.Peak, math.Abs(x))
+	}
+	m.RMS = math.Sqrt(sum / Samples)
+	copy(m.Bins[:], m.Bins[1:])
+	m.Bins[31] = m.Peak
+	m.Frames++
+	if p.Silence {
+		m.Missing++
+		m.Recovered++
+	}
+}
+func (m Meter) Duration() time.Duration { return time.Duration(m.Frames) * 20 * time.Millisecond }
+
+// Stream is advanced by one owner using an injected monotonic clock.
+type Stream struct {
+	ID                       uint32
+	Next                     uint32
+	Meter                    Meter
+	started, last, gap, tail time.Time
+	final                    uint32
+	stopped                  bool
+	Done                     bool
+	pending                  map[uint32][Samples]int16
+}
+
+func NewStream(id uint32, now time.Time) *Stream {
+	return &Stream{ID: id, started: now, last: now, pending: map[uint32][Samples]int16{}}
+}
+func (s *Stream) Push(f Frame, now time.Time) ([]PCM, error) {
+	if s.Done || f.SessionID != s.ID {
+		return nil, nil
+	}
+	if f.Sequence >= MaxFrames {
+		return nil, ErrLimit
+	}
+	if s.stopped && (s.final == EmptyFinal || f.Sequence > s.final) {
+		return nil, ErrInvalid
+	}
+	if f.Sequence < s.Next {
+		s.Meter.Duplicates++
+		return nil, nil
+	}
+	if _, ok := s.pending[f.Sequence]; ok {
+		s.Meter.Duplicates++
+		return nil, nil
+	}
+	p, e := Decode(f.Payload)
+	if e != nil {
+		return nil, e
+	}
+	if len(s.pending) >= 75 {
+		return nil, ErrLimit
+	}
+	s.pending[f.Sequence] = p
+	s.last = now
+	s.Meter.Received++
+	return s.Tick(now)
+}
+func (s *Stream) Stop(final uint32, now time.Time) ([]PCM, error) {
+	if s.stopped {
+		if final != s.final {
+			return nil, ErrInvalid
+		}
+		return nil, nil
+	}
+	if final == EmptyFinal {
+		if s.Next > 0 || len(s.pending) > 0 {
+			return nil, ErrInvalid
+		}
+	} else {
+		if final >= MaxFrames || final+1 < s.Next {
+			return nil, ErrInvalid
+		}
+		for seq := range s.pending {
+			if seq > final {
+				return nil, ErrInvalid
+			}
+		}
+	}
+	s.stopped = true
+	s.final = final
+	s.tail = now
+	return s.Tick(now)
+}
+func (s *Stream) Tick(now time.Time) ([]PCM, error) {
+	if s.Done {
+		return nil, nil
+	}
+	if !s.stopped && (now.Sub(s.started) >= 5*time.Minute || now.Sub(s.last) >= 3*time.Second) {
+		return nil, ErrLimit
+	}
+	var out []PCM
+	emit := func(p PCM) { out = append(out, p); s.Meter.Add(p); s.Next++; s.gap = time.Time{} }
+	for {
+		if p, ok := s.pending[s.Next]; ok {
+			delete(s.pending, s.Next)
+			emit(PCM{Sequence: s.Next, Samples: p})
+			continue
+		}
+		break
+	}
+	if s.stopped && (s.final == EmptyFinal || s.Next > s.final) {
+		s.Done = true
+		return out, nil
+	}
+	target := s.Next
+	hasGap := false
+	for n := range s.pending {
+		if !hasGap || n > target {
+			target = n
+		}
+		hasGap = true
+	}
+	force := s.stopped && now.Sub(s.tail) >= 500*time.Millisecond
+	if force {
+		target = s.final
+		hasGap = true
+	}
+	if hasGap {
+		missing := uint32(0)
+		for i := s.Next; i <= target; i++ {
+			if _, ok := s.pending[i]; !ok {
+				missing++
+			}
+		}
+		if missing+s.Meter.Missing > 100 {
+			return nil, ErrLimit
+		}
+		if s.gap.IsZero() {
+			s.gap = now
+		}
+		if force || !s.stopped && now.Sub(s.gap) >= 80*time.Millisecond {
+			for s.Next <= target {
+				p, ok := s.pending[s.Next]
+				delete(s.pending, s.Next)
+				emit(PCM{Sequence: s.Next, Samples: p, Silence: !ok})
+			}
+		}
+	}
+	if s.stopped && s.Next > s.final {
+		s.Done = true
+	}
+	return out, nil
+}

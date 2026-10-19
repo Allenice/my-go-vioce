@@ -1,0 +1,18 @@
+[package]
+name = "firmware-helper"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.95.0"
+publish = false
+
+[[bin]]
+name = "FirmwareHelper"
+path = "src/main.rs"
+
+[dependencies]
+espflash = { version = "=4.6.0", default-features = false, features = ["serialport"] }
+serialport = { version = "4.8", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+md-5 = "0.10"

@@ -1,0 +1,26 @@
+# ESP-IDF generated files
+build/
+sdkconfig
+sdkconfig.old
+managed_components/
+
+# Local editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+._*
+
+# Temporary image experiments and language caches
+/generated_images/
+__pycache__/
+*.py[cod]
+
+# Local environment and signing credentials
+.env
+.env.*
+!.env.example
+!.env.sample
+*.p12
+*.pfx
+*.mobileprovision
+*.provisionprofile

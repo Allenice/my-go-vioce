@@ -1,0 +1,58 @@
+简体中文 · [English](acceptance.md)
+
+# 实现与验收记录
+
+验证记录日期：2026-10-19。以下结果对应当时测试的实现与应用包。USB 设备检查仅覆盖只读 Serial/JTAG 枚举，桌面安装器的预检、写入和复位仍未验证；历史结果不能代替新发布构建的验证。
+
+## 固件打包验收
+
+集成后的 FirmwareHelper 变更通过 11 个打包 fixture 测试（59 个断言）、9 个 Rust 测试、Bun 到 Rust 的 manifest 契约探针、含 race 的 Go 测试、Swift 测试、Clippy、shell 语法、helper Info.plist、完整 App 打包、arm64 检查及内外签名校验。Build：PASS。Host tests：PASS。Device tests：仅只读 USB 枚举 PASS；预检/写入/复位 NOT RUN。
+
+根固件门禁现同时保留已验证的合并镜像和原始应用。GUI 打包校验普通、非空 ESP 镜像（`0xE9`）、3 MB 上限和按 4 KiB 向上取整后不越过 `cardid` 的擦除终点。原子写入 schema-v1 manifest，包含小写 SHA-256 摘要。`partitions` 是包含 NVS、PHY、factory、`cardid` 与 Recovery 完整五项布局的数组；type/subtype/offset/size 使用数字形式 ESP 分区值。构建退出时清理临时 firmware staging。锁定依赖构建的 Rust release 可执行文件作为独立嵌套 app，先于外层 MyGo 包签名。
+
+Rust、Go、Swift、固件打包和签名层的集成主机门禁现已通过。Cargo metadata 显示 121 个已解析第三方 package 均带许可证元数据；实际 arm64 依赖树包含 MPL-2.0 的 `serialport` 4.10.1，应用现随附其完整许可证和精确源码链接。正式分发前仍须完成最终版权归属审计。
+
+真机验收仍须确认仅向 `0x10000` 写入应用，预检拒绝错误芯片/Flash/分区表/Recovery 标记或镜像摘要，不存在 erase-all 路径，并保留 bootloader、分区表、`cardid` 与永久 Recovery。断线/失败后应测试按住 UP 上电五秒进入永久 Recovery，通过小程序重新安装。包内 manifest、USB 枚举或主机测试通过不能推断固件真机成功。Unverified：实际 USB 预检、刷写、复位与 Recovery 行为，以及正式发布前的最终版权归属审计。
+
+## 已实现契约
+
+- 薄 Go 入口、独立 module、MyGo 0.5.5 原生 UI 和标准 debug 打包。应用名称为 `go-voice`，bundle id 为 `yz.sh.mygo-go-voice`，BLE 产品身份仍为 Go Voice。
+- 严格控制校验拒绝重复/未知键、尾随 JSON、非法 UTF-8、错误数字类型、不支持的格式、缺失必填字段和超长控制消息。Audio envelope 校验、64 分片组装、去重、确定性有界淘汰、独立 166B IMA-ADPCM、320 样本 PCM 与有界排序均为纯 Go。
+- 流处理有 75 帧早到缓存、80ms 缺口等待、累计 100 帧补静音上限、500ms 已声明尾帧等待、3 秒 stall 和 15000 帧/5 分钟上限。不保存音频历史即可计算 RMS、peak、32 个波形 bins、时长和收帧/缺帧/补帧/重复计数。
+- 协调器测试覆盖 start、重复 start、早到帧、Speech ready 前 release、finish、润色、插字确认、断线、取消、旧结果、接受超时、连续复用 PTT 序号 0/1 的多段会话，以及使用独立序号空间的按键事件。每个原生 Speech 请求使用不同于 BLE session ID 的宿主代次 ID。设备取消先清除当前请求，再发送原生取消。
+- CoreBluetooth helper 仅连接明确选择的 UUID，订阅 Control/Audio，读取 DeviceInfo，确认至少 182 字节 ATT 载荷，支持写重试、重连和忘记设备。处理延迟 MTU 完成。BluetoothHelper 与 SpeechBridge 作为签名嵌套 helper app 打包，使 macOS TCC 能解析各自用途说明和稳定身份；FirmwareHelper 作为不带 TCC 专用 entitlement 的独立签名嵌套 App 打包。父进程退出、stdin EOF、信号与有界命令处理均可终止 helper。Go 限制原生行长、解码载荷和字符串字段。
+- 真实 SpeechAnalyzer/SpeechTranscriber 接收 16kHz Int16 单声道 PCM，使用 volatile results 和每会话 contextual strings，准备/保留 zh-CN 模型，发送带会话身份的 partial/final/error/cancel 事件，从不打开 Mac 音频输入。helper 使用 `RunLoop.main.run()` 保持物理主线程存活，因为 Speech 框架不能依赖原主线程已退出的 dispatch main queue。Swift Package 使用已安装 SDK 的真实 API 编译。两个 helper 都以可读事件处理长连接 stdin；真实进程回归测试保持 stdin 打开并要求命令立即生效。
+- TextInjector 在 start 时捕获前台目标，检查辅助功能/Secure Input，处理修饰键，优先 System Events、失败使用 CGEvent；0.5 秒后仅在归属标记和 change count 均未变时恢复完整剪贴板快照。目标不存在或已变化则仅留剪贴板。
+- 词库持久化所有要求字段，去重，提供手动 CRUD 和锁定，拒绝 AI 删除/覆盖锁定词，注入 Top 100。润色默认使用新的本地 FoundationModels session，云端必须明确选择。模式为 off/names/light/structured，30 秒超时，空输出/错误/低忠实度回退最终 ASR 原文。远端 HTTPS 拒绝 URL 内嵌凭据和重定向，bearer 凭据仅从 Keychain 获取。
+- UI 不管理 helper 进程或 Speech 会话。应用组装层连接服务，并使用 `mygo.RunOnMain` 分发后台结果。本次音频/转写状态不持久化。不包含麦克风权限文案或 audio-input entitlement。
+
+## 自动验证证据
+
+| 检查 | 结果 |
+| --- | --- |
+| Cargo fmt/test/Clippy | PASS：9 个 Rust 测试，固定 `espflash` 4.6.0 |
+| Bun 打包与 Rust manifest 契约 | PASS：11 个 fixture 测试 / 59 个断言；不写硬件 |
+| gofmt 检查 | PASS |
+| `go test ./...` | PASS |
+| `go vet ./...` | PASS |
+| `swift test --package-path macos` | PASS：4 个测试，不需要真实 BLE 或 Speech 授权 |
+| `./scripts/build.sh` | PASS：`go-voice` debug arm64 App、两个 Swift helper、签名 Rust FirmwareHelper 与 app-only 固件资源 |
+| 包内固件/manifest 与 helper 签名 | PASS：SHA-256/大小/布局、三个嵌套签名、arm64 与外层 deep signature |
+| `codesign --verify --deep --strict build/debug/darwin-arm64/go-voice.app` | PASS |
+| 根固件构建及静态门禁 | PASS：官方 ESP-IDF 5.5.3 容器构建和 host 门禁见根固件验收记录 |
+| 应用包启动及界面 | PASS：ad-hoc App 已启动，四页均正常显示，模型报告 `zh-CN model warmed`，固件页显示一个匿名兼容 USB 设备 |
+| USB 固件行为 | 枚举 PASS；预检/写入/校验/复位及中断写入 Recovery NOT RUN |
+
+Go 测试覆盖严格 JSON、静音和非零 ADPCM 黄金向量、预测值限幅、非法编码字段、分片乱序/重复/64 分片/淘汰、缺帧与尾帧边界、五分钟上限、波形计量、有界 helper 解析/canonical Base64、保持管道打开时发送真实 helper 命令、连续两段复用线路控制序号 0/1 的 PTT 会话、独立按键事件去重、词库锁定/持久化、显式云端选择/本地回退、超时/忠实度、不读取凭据的 Keychain 框架符号及查询绑定，以及协调器生命周期。Swift 测试覆盖 PCM 边界/canonical Base64、代次身份、明确设备选择/MTU 和条件剪贴板恢复。
+
+首次 MyGo 构建暴露其关闭 cgo 的编译路径。最终实现改用 purego Security.framework 与 CoreFoundation 绑定，已通过标准 MyGo 构建，没有引入凭据文件后端。
+
+## 剩余验收
+
+Build：PASS。Host tests：PASS。Device tests：仅 USB 枚举 PASS；固件预检/写入/复位 NOT RUN。
+
+Unverified：真实 CoreBluetooth 发现和无线丢链重连；五分钟 FoloToy AI Passport 音频流；实际外围设备上的 MTU 推断；Speech 授权和首次资产下载；识别质量/延迟；本地 FoundationModels 输出质量；真实 Keychain CRUD 授权；用户明确选择的远端接口；辅助功能/自动化授权；真实粘贴中的 Secure Input 和剪贴板归属；微信、VS Code、Chrome、终端插字；休眠/唤醒和连接中退出。单测及应用包启动/模型预热成功证明了归约器、管道和构建边界，不代表剩余操作系统/设备交互已验证。
+
+应用为本地开发 ad-hoc 签名，未公证或使用发布签名。改变身份的 debug 重构建可能需要重新授予 TCC 权限。V1 未认证，不得宣传已认证或端到端加密；UI 已明确说明。应用主路径没有用 mock 静默替代设备或系统权限行为。
+
+已记录的验收使用官方 ESP-IDF 5.5.3 容器重新构建固件，运行完整 Rust/Go/Swift/打包/签名门禁，检查 App 内 arm64 二进制和资源，启动真实 App、进入第四个固件页面并确认匿名枚举到一个兼容 USB Serial/JTAG 设备；刻意没有选择设备或触发安装。

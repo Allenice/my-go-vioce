@@ -1,0 +1,21 @@
+{
+  "name": "go-voice",
+  "identifier": "yz.sh.mygo-go-voice",
+  "version": "0.1.0",
+  "icon": "resources/icon.png",
+  "out": "build/debug",
+  "resources": ["firmware", "licenses", "docs/THIRD_PARTY_NOTICES.md", "docs/THIRD_PARTY_NOTICES.zh_CN.md"],
+  "macos": {
+    "minimumSystemVersion": "26.0",
+    "entitlements": "resources/entitlements.plist",
+    "helperEntitlements": {
+      "native/SpeechBridge.app": "resources/entitlements.plist"
+    },
+    "infoPlist": {
+      "LSUIElement": true,
+      "NSBluetoothAlwaysUsageDescription": "Connect to your selected FoloToy AI Passport to receive voice audio.",
+      "NSSpeechRecognitionUsageDescription": "Transcribe audio received from your FoloToy AI Passport on this Mac.",
+      "NSAppleEventsUsageDescription": "Insert your completed dictation into the application you selected."
+    }
+  }
+}
