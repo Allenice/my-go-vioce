@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- 为 `go-voice` 增加签名更新与公证发布。正式版使用 Developer ID 和 hardened runtime 签名（包括嵌套 helper），经过公证并 staple，并通过 MyGo 原生更新窗口从 `go-voice-v*` GitHub release 中 Ed25519 签名的归档与差分包自动更新，每天检查一次；菜单栏“检查更新…”会打开该窗口，调试版则说明其不会更新。`gui/scripts/release.sh` 负责验证、以 `build.sh --release` 构建、核对签名、staple 与 Gatekeeper，并上传草稿 release（manifest 最后上传）。固件工作流现在忽略 `go-voice-v*` tag。发布说明位于 `gui/docs/CHANGELOG.zh_CN.md`；实际公证发布与已安装副本的更新仍待用户检查。
+
 - 将 `go-voice` 改为菜单栏应用：不显示程序坞图标（`LSUIElement`），菜单栏使用由透明白色标志生成的模板图标，菜单包含“设置…”（显示主窗口）、占位的“检查更新…”对话框和“退出”。关闭主窗口仅隐藏而不退出，隐藏的窗口也不会阻止退出。系统权限弹窗文案改为 FoloToy AI Passport，不再称作工牌。
 
 - 为 `go-voice` 新增悬浮听写胶囊条：基于不获取键盘焦点显示的 MyGo 面板，位于当前屏幕底部中央，包含取消（仅会话期间全局占用 Esc）、小声波、实时转写的最新文字，以及跳过 AI 润色、直接插入 ASR 原文的确认按钮。每次粘贴前胶囊条都会隐藏，确保插入目标为听写的应用；会话取消或失败时短暂显示原因。在真实目标应用上的表现仍待用户确认。

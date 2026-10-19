@@ -6,6 +6,8 @@
 
 `.github/workflows/build-firmware.yml` builds and publishes firmware for tags and supports manual dispatch. Ordinary branch pushes do not trigger it. Keep this page synchronized with the workflow.
 
+Tags starting with `go-voice-v` are excluded: they belong to the signed `go-voice` desktop releases that `gui/scripts/release.sh` uploads as drafts from a Mac (see [go-voice updates and releases](../../../gui/docs/updates.md)). Never use that prefix for a firmware tag; the firmware release job would otherwise attach to, and could publish, the desktop draft.
+
 The build job restores ccache, runs `./tools/validate.sh --firmware` with ESP-IDF 5.5.3 for ESP32-C3, verifies the bootloader at `0x0`, partition table at `0x8000`, application at `0x10000`, 8 MB Flash arguments, and the complete mini-program BLE compatibility contract, then uploads `FoloToy-AI-Passport-full.bin`. A separate least-privilege release job publishes that artifact only for a tag.
 
 All Actions are pinned to full commit SHAs. The build job has `contents: read`; only the tag release job receives `contents: write`.

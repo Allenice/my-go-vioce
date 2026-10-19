@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - "**"
+      # go-voice desktop releases are drafts uploaded by gui/scripts/release.sh.
+      - "!go-voice-v*"
   workflow_dispatch:
 
 permissions:

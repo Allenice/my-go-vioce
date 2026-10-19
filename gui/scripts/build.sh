@@ -6,9 +6,23 @@ cd "$(dirname "$0")/.."
 # `mygo dev` is not used: it spawns the app as its own child, so TCC treats
 # the launching terminal as responsible and kills BluetoothHelper. Launching
 # through LaunchServices (`open`) keeps go-voice as its own TCC identity.
+# --release builds the production app into build/release: signed with
+# MYGO_SIGN_IDENTITY (a Developer ID), notarized with macos.notarize, and with
+# MYGO_UPDATER_PRIVATE_KEY the signed update files (scripts/release.sh).
 mode=build
-if [[ "${1:-}" == --dev ]]; then
-  mode=dev
+case "${1:-}" in
+  --dev) mode=dev ;;
+  --release) mode=release ;;
+  '') ;;
+  *) echo "Usage: $0 [--dev|--release]" >&2; exit 2 ;;
+esac
+if [[ "$mode" == release && "${MYGO_SIGN_IDENTITY:-}" != "Developer ID Application: "* ]]; then
+  echo 'A release needs MYGO_SIGN_IDENTITY set to a Developer ID Application identity.' >&2
+  exit 1
+fi
+swift_config=debug
+if [[ "$mode" == release ]]; then
+  swift_config=release
 fi
 if [[ "$(uname -m)" != arm64 ]]; then
   echo 'MyGo requires Apple Silicon.' >&2
@@ -31,7 +45,7 @@ cleanup_staging() {
 trap cleanup_staging EXIT
 "$bun_bin" scripts/package-firmware.mjs
 cargo build --manifest-path firmware-helper/Cargo.toml --release --locked --target aarch64-apple-darwin
-swift build --package-path macos -c debug
+swift build --package-path macos -c "$swift_config"
 
 native_staging="$(mktemp -d "${TMPDIR:-/tmp}/go-voice-native.XXXXXX")"
 for helper in BluetoothHelper SpeechBridge FirmwareHelper; do
@@ -41,10 +55,11 @@ for helper in BluetoothHelper SpeechBridge FirmwareHelper; do
     install -m 0755 "${CARGO_TARGET_DIR:-firmware-helper/target}/aarch64-apple-darwin/release/FirmwareHelper" "$bundle/Contents/MacOS/$helper"
     install -m 0644 resources/FirmwareHelper-Info.plist "$bundle/Contents/Info.plist"
   else
-    install -m 0755 "macos/.build/debug/$helper" "$bundle/Contents/MacOS/$helper"
+    install -m 0755 "macos/.build/$swift_config/$helper" "$bundle/Contents/MacOS/$helper"
     install -m 0644 "macos/$helper/Info.plist" "$bundle/Contents/Info.plist"
   fi
   printf 'APPL????' > "$bundle/Contents/PkgInfo"
+  # Ad hoc for now; a Developer ID build signs the helpers again with the app.
   codesign --force --sign - --timestamp=none "$bundle"
 done
 
@@ -54,8 +69,18 @@ fi
 mv "$native_staging" resources/native
 native_staging=""
 
+mygo() { go run github.com/egoist/mygo/cmd/mygo "$@"; }
+if [[ "$mode" == release ]]; then
+  # Out of the way of the debug app, which dev sessions rebuild.
+  rm -rf build/release
+  mygo build -platform darwin/arm64 -o build/release -sign "$MYGO_SIGN_IDENTITY"
+  exit
+fi
+
+# Debug builds never notarize, nor make disk images or update files, and
+# never update themselves.
 build_app() {
-  go run github.com/egoist/mygo/cmd/mygo build -debug -skip-dmg -platform darwin/arm64 ${MYGO_SIGN_IDENTITY:+-sign "$MYGO_SIGN_IDENTITY"}
+  env -u MYGO_UPDATER_PRIVATE_KEY go run github.com/egoist/mygo/cmd/mygo build -debug -skip-dmg -skip-notarize -platform darwin/arm64 ${MYGO_SIGN_IDENTITY:+-sign "$MYGO_SIGN_IDENTITY"}
 }
 if [[ "$mode" != dev ]]; then
   build_app

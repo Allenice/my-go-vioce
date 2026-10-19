@@ -53,6 +53,6 @@ Build：PASS。Host tests：PASS。Device tests：仅 USB 枚举 PASS；固件�
 
 Unverified：真实 CoreBluetooth 发现和无线丢链重连；五分钟 FoloToy AI Passport 音频流；实际外围设备上的 MTU 推断；Speech 授权和首次资产下载；识别质量/延迟；本地 FoundationModels 输出质量；真实 Keychain CRUD 授权；用户明确选择的远端接口；辅助功能/自动化授权；真实粘贴中的 Secure Input 和剪贴板归属；微信、VS Code、Chrome、终端插字；休眠/唤醒和连接中退出。单测及应用包启动/模型预热成功证明了归约器、管道和构建边界，不代表剩余操作系统/设备交互已验证。
 
-应用为本地开发 ad-hoc 签名，未公证或使用发布签名。改变身份的 debug 重构建可能需要重新授予 TCC 权限。V1 未认证，不得宣传已认证或端到端加密；UI 已明确说明。应用主路径没有用 mock 静默替代设备或系统权限行为。
+已记录的应用为本地开发 ad-hoc 签名。正式版现已使用 Developer ID 签名、公证并 staple，并通过 Ed25519 签名的归档自动更新（[更新、签名与公证](updates.zh_CN.md)）；尚未安装、启动或更新过任何正式版。实际发布、Gatekeeper 首次打开、从已公开旧版本更新且 TCC 授权保留，以及更新后 helper 签名仍待用户检查。改变身份的 debug 重构建可能需要重新授予 TCC 权限。V1 未认证，不得宣传已认证或端到端加密；UI 已明确说明。应用主路径没有用 mock 静默替代设备或系统权限行为。
 
 已记录的验收使用官方 ESP-IDF 5.5.3 容器重新构建固件，运行完整 Rust/Go/Swift/打包/签名门禁，检查 App 内 arm64 二进制和资源，启动真实 App、进入第四个固件页面并确认匿名枚举到一个兼容 USB Serial/JTAG 设备；刻意没有选择设备或触发安装。

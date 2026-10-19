@@ -94,3 +94,18 @@ func TestSpeechWithoutGrantEndsSessionWithReason(t *testing.T) {
 		t.Fatalf("status %q", a.coordinator.Status)
 	}
 }
+
+func TestUpdatesUnavailableDetail(t *testing.T) {
+	for _, development := range []bool{true, false} {
+		if got := updatesUnavailableDetail("", development); !strings.Contains(got, "开发版") {
+			t.Fatalf("unversioned build: %q", got)
+		}
+	}
+	if got := updatesUnavailableDetail("0.1.0", true); !strings.Contains(got, "开发版") {
+		t.Fatalf("debug build: %q", got)
+	}
+	got := updatesUnavailableDetail("0.1.0", false)
+	if !strings.Contains(got, "0.1.0") || !strings.Contains(got, "~/Applications") || strings.Contains(got, "开发版") {
+		t.Fatalf("release build: %q", got)
+	}
+}

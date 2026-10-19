@@ -4,3 +4,4 @@
 /macos/.build/
 /resources/native/
 .DS_Store
+/.local/

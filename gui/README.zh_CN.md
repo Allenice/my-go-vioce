@@ -41,15 +41,20 @@ BluetoothHelper 只使用[权威 BLE 协议](../docs/ai-passport-ble-protocol.zh
 
 会话期间，听写胶囊条悬浮在指针所在屏幕的底部中央、程序坞上方，在所有桌面空间可见：左侧为取消按钮（仅在会话期间全局占用 Esc），随后是小声波、实时转写的最新文字，以及 AI 润色期间可点击的确认按钮，用于跳过润色直接插入 ASR 原文。它是不获取键盘焦点显示的 MyGo 面板，并在任何粘贴前隐藏，确保文字进入你听写的目标应用；会话被取消或失败时显示原因 1.5 秒。
 
-go-voice 是菜单栏应用：`LSUIElement` 使其不出现在程序坞和应用切换器中，菜单栏模板图标提供“设置…”（Cmd+,，显示主窗口）、“检查更新…”（在更新源就绪前为显示当前版本的占位对话框）和“退出”。关闭主窗口只会隐藏，应用继续驻留菜单栏。图标 `gui/resources/tray.png` 由透明白色标志经 `"$WAKU_BUN_EXECUTABLE" gui/scripts/generate-tray-icon.mjs`（需要 FFmpeg）生成：按图案裁切，36×36 像素，黑色透明底模板图。包含 Bluetooth、Speech、Apple Events 权限文案，不包含麦克风权限或 audio-input entitlement。插字还需要用户授予辅助功能权限。Secure Input、缺少辅助功能授权或目标应用不可用时，最终文本仅留在剪贴板。粘贴优先 System Events，失败使用 CGEvent；0.5 秒后仅在剪贴板归属未变时恢复原内容。
+go-voice 是菜单栏应用：`LSUIElement` 使其不出现在程序坞和应用切换器中，菜单栏模板图标提供“设置…”（Cmd+,，显示主窗口）、“检查更新…”（正式版打开 MyGo 签名更新窗口；调试版说明其不会自动更新）和“退出”。关闭主窗口只会隐藏，应用继续驻留菜单栏。图标 `gui/resources/tray.png` 由透明白色标志经 `"$WAKU_BUN_EXECUTABLE" gui/scripts/generate-tray-icon.mjs`（需要 FFmpeg）生成：按图案裁切，36×36 像素，黑色透明底模板图。包含 Bluetooth、Speech、Apple Events 权限文案，不包含麦克风权限或 audio-input entitlement。插字还需要用户授予辅助功能权限。Secure Input、缺少辅助功能授权或目标应用不可用时，最终文本仅留在剪贴板。粘贴优先 System Events，失败使用 CGEvent；0.5 秒后仅在剪贴板归属未变时恢复原内容。
 
 默认使用 Apple FoundationModels 本地润色，提供关闭、专名、轻度和结构化模式。失败、超时、空输出或字符忠实度过低都保留最终 ASR 原文。本地失败不会调用远端。明确选择并保存 `remote` 后，才允许把最终转写和当前词库发往配置的 HTTPS OpenAI-compatible 端点；音频不发送。设置页将其标注为 OpenAI 兼容接口，并提供 Chat Completions（默认）和 Responses 两种接口格式。填写例如 `https://provider.example/v1` 的基础端点和模型名，应用按所选格式追加 `/chat/completions` 或 `/responses`。Responses 请求设置 `store: false`，且只接受恰好一个已完成的 `message` 输出。API key 仅通过 Security.framework 存入 macOS Keychain，不写入设置、日志、测试夹具或 `mygo.json`。
 
 设置和词库以受限权限保存在 `~/Library/Application Support/MyGo-GoVoice/`。词库保留来源、权重、锁定、创建和使用时间，按标准化术语去重，每次会话最多注入 100 个 contextual strings。转写仅显示本次会话，不持久保存音频或转写历史。
 
+## 发布与更新
+
+正式版使用团队 Developer ID 和 hardened runtime 签名，经过公证并 staple，并从已签名的 `go-voice-v*` GitHub release 自动更新，每天检查一次。`./scripts/release.sh` 负责测试、构建（`./scripts/build.sh --release`）、公证、验证并上传草稿 release；公开草稿后更新才会推送。密钥、准备工作、发布流程与更新验收见[更新、签名与公证](docs/updates.zh_CN.md)。
+
 ## 文档
 
 - [实现与验收记录](docs/acceptance.zh_CN.md)
+- [更新、签名与公证](docs/updates.zh_CN.md)与[发布说明](docs/CHANGELOG.zh_CN.md)
 - [第三方声明](docs/THIRD_PARTY_NOTICES.zh_CN.md)
 - [根架构文档](../docs/passport-audio-input-architecture.zh_CN.md)
 - [根目录契约](../docs/project-structure.zh_CN.md)

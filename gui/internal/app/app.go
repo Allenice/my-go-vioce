@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/plugins/updater"
+	updaterui "github.com/egoist/mygo/plugins/updater/native"
 	nativeui "github.com/egoist/mygo/ui"
 	"github.com/vfasky/my-ai-audio/gui/internal/device"
 	"github.com/vfasky/my-ai-audio/gui/internal/firmware"
@@ -71,6 +73,11 @@ func Run(icon, tray []byte) {
 	// and closing the window keeps it running in the menu bar.
 	mygo.App.SetActivationPolicy(mygo.ActivationPolicyAccessory)
 	mygo.App.OnWindowAllClosed(func() {})
+	// Signed updates in MyGo's native update window: a daily background
+	// check, release notes, download and relaunch. Only release builds with
+	// the update feed and public key of mygo.json update themselves
+	// (docs/updates.md); debug builds never do.
+	mygo.Use(updaterui.New(updater.Options{Language: "zh-Hans", Icon: icon}))
 	mygo.App.WhenReady(func() {
 		if bitmap, err := nativeui.DecodeBitmap(icon); err == nil {
 			a.view.AppIcon = bitmap
@@ -93,9 +100,12 @@ func Run(icon, tray []byte) {
 		})
 		mygo.App.Focus()
 		a.startTray(tray)
+		// The capsule paints its own shadow. macOS would trace a window shadow
+		// around the alpha of that soft shadow too, a dark outline on light
+		// backgrounds.
 		a.hud = mygo.NewWindow(mygo.WindowOptions{
 			Title: "go-voice dictation", Panel: true, Hidden: true, Frameless: true, Transparent: true,
-			DisableResize: true, Width: appui.HUDWidth, Height: appui.HUDHeight,
+			DisableResize: true, DisableShadow: true, Width: appui.HUDWidth, Height: appui.HUDHeight,
 			Content: nativeui.View(a.view.DrawHUD),
 		})
 		a.hud.OnClose(func(e *mygo.CloseEvent) {
@@ -130,8 +140,8 @@ func Run(icon, tray []byte) {
 	_ = mygo.App.Run()
 }
 
-// startTray puts go-voice in the menu bar: settings, a placeholder update
-// check, and quit.
+// startTray puts go-voice in the menu bar: settings, the update check, and
+// quit.
 func (a *application) startTray(icon []byte) {
 	tray, err := mygo.NewTray(mygo.TrayOptions{
 		Icon:           icon,
@@ -158,22 +168,34 @@ func (a *application) showMain() {
 	mygo.App.Focus()
 }
 
-// checkForUpdates is a placeholder until an update feed exists.
+// checkForUpdates opens the update window, or says why this build cannot
+// update itself.
 func (a *application) checkForUpdates() {
-	version := mygo.App.Version()
-	if version == "" {
-		version = "开发版"
-	}
 	mygo.App.Focus()
-	// Message is modal: keep it off the main thread.
+	// Enabled probes the install location, and Message is modal: keep both
+	// off the main thread.
 	go func() {
+		if mygo.Updater.Enabled() {
+			updater.CheckForUpdates()
+			return
+		}
 		_, _ = mygo.Dialog.Message(mygo.MessageOptions{
 			Type:    mygo.MessageInfo,
 			Title:   "检查更新",
-			Message: "检查更新功能即将推出",
-			Detail:  "当前版本 " + version + "。",
+			Message: "此版本无法自动更新",
+			Detail:  updatesUnavailableDetail(mygo.App.Version(), mygo.IsDev()),
 		})
 	}()
+}
+
+// updatesUnavailableDetail explains why a build does not update itself:
+// debug builds never do, and release builds need to write where they are
+// installed.
+func updatesUnavailableDetail(version string, development bool) string {
+	if development || version == "" {
+		return "开发版不会自动更新。请从 GitHub Releases 安装正式版。"
+	}
+	return "当前版本 " + version + "。go-voice 无法写入当前安装位置，请将它移到“应用程序”或 ~/Applications 后再检查更新。"
 }
 func (a *application) post(fn func()) {
 	mygo.RunOnMain(func() {

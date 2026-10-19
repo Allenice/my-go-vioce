@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- Add signed updates and notarized releases to `go-voice`. Release builds are signed with the Developer ID and hardened runtime (nested helpers included), notarized and stapled, and update themselves through MyGo's native update window from Ed25519-signed archives and deltas in `go-voice-v*` GitHub releases, checking daily; Check for Updates… in the menu bar opens it, and debug builds explain that they do not update. `gui/scripts/release.sh` validates, builds with `build.sh --release`, verifies signatures, staples and Gatekeeper, and uploads a draft release with the manifest last. The firmware workflow now ignores `go-voice-v*` tags. Release notes live in `gui/docs/CHANGELOG.md`; an actual notarized release and an installed update remain user checks.
+
 - Make `go-voice` a menu-bar app: no Dock icon (`LSUIElement`), a template menu-bar icon derived from the transparent white logo, and a menu with Settings… (shows the main window), a placeholder Check for Updates… dialog, and Quit. Closing the main window hides it instead of quitting, while quitting is never blocked by hidden windows. Privacy prompts now name FoloToy AI Passport instead of a badge.
 
 - Add a floating dictation capsule to `go-voice`, built on a MyGo panel shown without the keyboard at the bottom centre of the active display: cancel (Escape claimed system-wide only during a session), a mini waveform, the newest words of the live transcript, and a confirm button that skips AI refinement and inserts the ASR original. The capsule hides before every paste so insertion targets the dictated app; cancelled or failed sessions show their reason briefly. Behaviour over real target apps remains a user check.

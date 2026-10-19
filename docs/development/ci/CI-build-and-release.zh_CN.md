@@ -12,6 +12,7 @@
 
 - **push tag**：当向仓库推送 tag（如 `v1.0.0`、`v0.1.0-feature/xxx`）时触发自动构建，并在构建成功后自动创建 Release（带固件产物）。
 - **workflow_dispatch**：可在 GitHub Actions 页面手动触发（用于调试/预发布验证）。
+- **排除 `go-voice-v*` tag**：这类 tag 属于 `gui/scripts/release.sh` 在 Mac 上上传为草稿的 `go-voice` 签名桌面版发布（见 [go-voice 更新与发布](../../../gui/docs/updates.zh_CN.md)），不触发本流水线。固件 tag 不要使用该前缀，否则固件 release job 会附加到、甚至公开桌面版草稿。
 
 > 平时 push 到分支（非 tag）**不会**触发构建；只有打 tag 才会。
 

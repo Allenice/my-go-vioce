@@ -5,8 +5,15 @@
   "icon": "resources/icon.png",
   "out": "build/debug",
   "resources": ["firmware", "licenses", "docs/THIRD_PARTY_NOTICES.md", "docs/THIRD_PARTY_NOTICES.zh_CN.md"],
+  "updates": {
+    "publicKey": "kf9mFvBQMctgyCFHkeCemCVejf31Xx2+gNkoFuWFqr4=",
+    "github": "vfasky/my-ai-audio",
+    "tagPrefix": "go-voice-v",
+    "changelog": "docs/CHANGELOG.zh_CN.md"
+  },
   "macos": {
     "minimumSystemVersion": "26.0",
+    "notarize": { "keychainProfile": "NOTARY" },
     "entitlements": "resources/entitlements.plist",
     "helperEntitlements": {
       "native/SpeechBridge.app": "resources/entitlements.plist"

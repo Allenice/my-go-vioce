@@ -9,7 +9,7 @@ import (
 // HUD window metrics: the capsule sits at the bottom centre, leaving room
 // above it for the cancel button's tooltip.
 const (
-	HUDWidth  = 680
+	HUDWidth  = 510
 	HUDHeight = 128
 	hudTail   = 26 // runes of transcript the capsule keeps, newest last
 	miniBars  = 11
@@ -37,7 +37,7 @@ func miniLevels(bins [32]float64) [miniBars]float32 {
 }
 
 func drawMini(p *ui.Painter, r ui.Rect, bins [32]float64, phase string) {
-	const pitch, bar = 4.5, 2.5
+	const pitch, bar = 3.375, 1.875
 	x0 := r.X + (r.W-(miniBars-1)*pitch-bar)/2
 	cy := r.Y + r.H/2
 	live, working := isLive(phase), isWorking(phase) || phase == "finalizing"
@@ -56,7 +56,7 @@ func drawMini(p *ui.Painter, r ui.Rect, bins [32]float64, phase string) {
 			color = colOrangeDeep.Mix(colOrange, 0.45+0.55*levels[i])
 		case working:
 			a := max(0, 1-abs32(float32(i)-head)/2.5)
-			h = bar + a*10
+			h = bar + a*7.5
 			color = colOrangeDeep.Mix(colOrange, a)
 		}
 		x := x0 + float32(i)*pitch
@@ -95,31 +95,31 @@ func (v *View) DrawHUD(c *ui.Context) {
 	c.Root().Background(ui.Transparent)
 	s := v.Snapshot
 	ui.Box(c).Fill().Children(func() {
-		capsule := ui.Row(c).Attach(ui.AnchorBottom, ui.AnchorBottom).Bottom(14).Height(52).Padding(7).Gap(10).
-			Radius(26).Background(ui.Hex("#121212")).Border(1, ui.RGBA(255, 255, 255, 0.12)).
-			Shadow(0, 10, 30, 0, ui.RGBA(0, 0, 0, 0.45))
+		capsule := ui.Row(c).Attach(ui.AnchorBottom, ui.AnchorBottom).Bottom(10.5).Height(39).Padding(5.25).Gap(7.5).
+			Radius(19.5).Background(ui.Hex("#121212")).Border(1, ui.RGBA(255, 255, 255, 0.12)).
+			Shadow(0, 7.5, 22.5, 0, ui.RGBA(0, 0, 0, 0.45))
 		capsule.Children(func() {
-			cancel := ui.ButtonBase(c.Key("hud-cancel")).Size(38, 38).Radius(19).Center().Label("取消").Tooltip("取消  Esc").
+			cancel := ui.ButtonBase(c.Key("hud-cancel")).Size(28.5, 28.5).Radius(14.25).Center().Label("取消").Tooltip("取消  Esc").
 				Border(1, ui.RGBA(255, 255, 255, 0.16)).TextColor(colSubtle)
 			cancel.Background(pick(cancel.Hovered(), colPillHover, colPill))
-			cancel.Children(func() { ui.Icon(c, iconClose).Size(15, 15) })
+			cancel.Children(func() { ui.Icon(c, iconClose).Size(11.25, 11.25) })
 			if cancel.Clicked() && s.SpeechActive {
 				v.Actions.Cancel()
 			}
 			phase := s.Phase
 			bins := s.Meter.Bins
-			ui.Box(c).Size(54, 26).Draw(func(p *ui.Painter, r ui.Rect) { drawMini(p, r, bins, phase) })
+			ui.Box(c).Size(40.5, 19.5).Draw(func(p *ui.Painter, r ui.Rect) { drawMini(p, r, bins, phase) })
 			line, spoken := hudLine(s)
-			ui.Text(c, tailText(line, hudTail)).FontSize(15).FontWeight(500).SingleLine().MaxWidth(470).
-				TextColor(pick(spoken, colText, colMuted)).PaddingX(2)
-			commit := ui.ButtonBase(c.Key("hud-commit")).Size(38, 38).Radius(19).Center().Label("立即插入原文").
+			ui.Text(c, tailText(line, hudTail)).FontSize(11.25).FontWeight(500).SingleLine().MaxWidth(352.5).
+				TextColor(pick(spoken, colText, colMuted)).PaddingX(1.5)
+			commit := ui.ButtonBase(c.Key("hud-commit")).Size(28.5, 28.5).Radius(14.25).Center().Label("立即插入原文").
 				Tooltip("跳过 AI 润色，立即插入").Disabled(!s.CanCommit)
 			if s.CanCommit {
 				commit.Background(pick(commit.Hovered(), ui.Hex("#EBEBEF"), ui.Hex("#FFFFFF"))).TextColor(colCanvas)
 			} else {
 				commit.Background(colPill).TextColor(colFaint)
 			}
-			commit.Children(func() { ui.Icon(c, iconCheck).Size(16, 16) })
+			commit.Children(func() { ui.Icon(c, iconCheck).Size(12, 12) })
 			if commit.Clicked() && s.CanCommit {
 				v.Actions.Commit()
 			}
