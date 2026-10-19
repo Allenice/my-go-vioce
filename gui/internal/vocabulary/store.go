@@ -19,18 +19,38 @@ type Term struct {
 	Locked         bool      `json:"locked"`
 	CreatedAt      time.Time `json:"createdAt"`
 	LastUsedAt     time.Time `json:"lastUsedAt"`
-}
-type Store struct {
-	Terms []Term `json:"terms"`
+	// Aliases are the replacements of version 0.1 files, read once and
+	// moved into Store.Replacements.
+	Aliases []string `json:"aliases,omitempty"`
 }
 
-func Normalize(s string) string { return strings.ToLower(strings.Join(strings.Fields(s), " ")) }
-func (s *Store) Put(t Term, ai bool) error {
+type Store struct {
+	Terms []Term `json:"terms"`
+	// Replacements correct misrecognitions before anything else.
+	Replacements []Replacement `json:"replacements,omitempty"`
+}
+
+func Normalize(s string) string            { return strings.ToLower(strings.Join(strings.Fields(s), " ")) }
+func (s *Store) Put(t Term, ai bool) error { return s.put(t, ai) }
+
+// Update saves t in place of the term previous, which an edit may rename.
+func (s *Store) Update(previous string, t Term) error {
+	if e := s.put(t, false); e != nil {
+		return e
+	}
+	if previous != "" && Normalize(previous) != Normalize(t.Term) {
+		return s.Delete(previous, false)
+	}
+	return nil
+}
+
+func (s *Store) put(t Term, ai bool) error {
 	t.Term = strings.TrimSpace(t.Term)
 	t.NormalizedTerm = Normalize(t.Term)
 	if t.NormalizedTerm == "" || len(t.Term) > 256 || !utf8.ValidString(t.Term) || t.Weight < 0 || t.Weight > 100 {
 		return errors.New("invalid vocabulary term")
 	}
+	t.Aliases = nil
 	switch t.Source {
 	case "manual", "correction", "ai", "imported":
 	default:
@@ -54,6 +74,7 @@ func (s *Store) Put(t Term, ai bool) error {
 	s.Terms = append(s.Terms, t)
 	return nil
 }
+
 func (s *Store) Delete(term string, ai bool) error {
 	for i, v := range s.Terms {
 		if v.NormalizedTerm == Normalize(term) {
@@ -108,9 +129,13 @@ func Load(path string) (Store, error) {
 		return Store{}, e
 	}
 	validated := Store{}
+	var migrated []Replacement
 	for _, t := range s.Terms {
 		if e = validated.Put(t, false); e != nil {
 			return Store{}, e
+		}
+		for _, alias := range t.Aliases {
+			migrated = append(migrated, Replacement{From: alias, To: strings.TrimSpace(t.Term)})
 		}
 		for i := range validated.Terms {
 			if validated.Terms[i].NormalizedTerm == Normalize(t.Term) {
@@ -120,6 +145,16 @@ func Load(path string) (Store, error) {
 				validated.Terms[i].LastUsedAt = t.LastUsedAt
 			}
 		}
+	}
+	for _, r := range s.Replacements {
+		if e = validated.PutReplacement("", r); e != nil {
+			return Store{}, e
+		}
+	}
+	// The aliases of version 0.1 move into the replacements; one that no
+	// longer fits is dropped rather than failing the whole vocabulary.
+	for _, r := range migrated {
+		_ = validated.PutReplacement("", r)
 	}
 	return validated, nil
 }

@@ -6,7 +6,25 @@ import (
 	"time"
 )
 
+// ErrLimit is a session that the stream ends because its audio broke off
+// or ran past a bound. Each reason is an error of its own, which
+// errors.Is(err, ErrLimit) matches, so that the user learns which.
 var ErrLimit = errors.New("audio recovery or session limit exceeded")
+
+var (
+	ErrSilence  = limit("连续 3 秒没有收到音频，本次语音已结束：请检查蓝牙连接，或按键松开时设备是否发送了结束信号")
+	ErrTooLong  = limit("本次语音超过 5 分钟上限")
+	ErrSequence = limit("音频帧序号超出单次语音上限")
+	ErrBacklog  = limit("乱序等待的音频帧过多，蓝牙传输可能不稳定")
+	ErrMissing  = limit("丢失的音频帧过多（超过 100 帧），蓝牙传输可能不稳定")
+)
+
+// limitError is one reason of ErrLimit.
+type limitError struct{ msg string }
+
+func limit(msg string) error               { return &limitError{msg} }
+func (e *limitError) Error() string        { return e.msg }
+func (e *limitError) Is(target error) bool { return target == ErrLimit }
 
 type PCM struct {
 	Sequence uint32
@@ -59,7 +77,7 @@ func (s *Stream) Push(f Frame, now time.Time) ([]PCM, error) {
 		return nil, nil
 	}
 	if f.Sequence >= MaxFrames {
-		return nil, ErrLimit
+		return nil, ErrSequence
 	}
 	if s.stopped && (s.final == EmptyFinal || f.Sequence > s.final) {
 		return nil, ErrInvalid
@@ -77,7 +95,7 @@ func (s *Stream) Push(f Frame, now time.Time) ([]PCM, error) {
 		return nil, e
 	}
 	if len(s.pending) >= 75 {
-		return nil, ErrLimit
+		return nil, ErrBacklog
 	}
 	s.pending[f.Sequence] = p
 	s.last = now
@@ -114,8 +132,11 @@ func (s *Stream) Tick(now time.Time) ([]PCM, error) {
 	if s.Done {
 		return nil, nil
 	}
-	if !s.stopped && (now.Sub(s.started) >= 5*time.Minute || now.Sub(s.last) >= 3*time.Second) {
-		return nil, ErrLimit
+	if !s.stopped && now.Sub(s.started) >= 5*time.Minute {
+		return nil, ErrTooLong
+	}
+	if !s.stopped && now.Sub(s.last) >= 3*time.Second {
+		return nil, ErrSilence
 	}
 	var out []PCM
 	emit := func(p PCM) { out = append(out, p); s.Meter.Add(p); s.Next++; s.gap = time.Time{} }
@@ -152,7 +173,7 @@ func (s *Stream) Tick(now time.Time) ([]PCM, error) {
 			}
 		}
 		if missing+s.Meter.Missing > 100 {
-			return nil, ErrLimit
+			return nil, ErrMissing
 		}
 		if s.gap.IsZero() {
 			s.gap = now

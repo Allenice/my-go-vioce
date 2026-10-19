@@ -12,6 +12,7 @@ MyGo 是独立实现的 Go Voice 桌面宿主。Go Voice 图稿来自 `assets/br
 | go-text/typesetting v0.3.5 | MyGo 文本排版依赖 | 原始 LICENSE 和 HarfBuzz 声明保留在 `licenses/` |
 | golang.org/x/image v0.46.0 | MyGo 图像依赖 | BSD；`licenses/x-image-BSD.txt` |
 | golang.org/x/text v0.43.0 | MyGo 语言区域（i18n）依赖 | BSD；`licenses/x-text-BSD.txt` |
+| go-pinyin v0.21.0，<https://github.com/mozillazg/go-pinyin> | 提供拼音读音，用于在润色时找出词库词的同音字 | MIT，Copyright (c) 2016 mozillazg；`licenses/go-pinyin-MIT.txt` |
 | espflash 4.6.0，<https://github.com/esp-rs/espflash> | FirmwareHelper 使用的 USB 刷写 Rust 库；属于 esp-rs 项目，并非 Espressif 官方主要刷写工具 | MIT OR Apache-2.0；上游完整文本见 `licenses/espflash-MIT.txt` 和 `licenses/espflash-Apache-2.0.txt`；版本由 `firmware-helper/Cargo.lock` 固定 |
 | serialport 4.10.1，<https://crates.io/crates/serialport/4.10.1> | FirmwareHelper 与 espflash 使用的 macOS 串口枚举和访问库 | MPL-2.0；完整 crate 许可证见 `licenses/serialport-MPL-2.0.txt`；对应精确版本的未修改源码可从 crates.io 获取 |
 | Yap，<https://github.com/FrigadeHQ/yap> | SpeechAnalyzer、目标捕获、条件恢复剪贴板、本地润色的架构参考 | 未复制 Yap 源码；依据仓库双语设计文档和已安装 SDK API 实现 |

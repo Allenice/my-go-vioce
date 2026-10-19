@@ -6,13 +6,15 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// HUD window metrics: the capsule sits at the bottom centre, leaving room
-// above it for the cancel button's tooltip.
+// HUD window metrics: the capsule sits at the bottom centre, with the
+// preview of the text above it and room for the cancel button's tooltip.
 const (
 	HUDWidth  = 510
-	HUDHeight = 128
-	hudTail   = 26 // runes of transcript the capsule keeps, newest last
-	miniBars  = 11
+	HUDHeight = 172
+	// previewTail is the runes of transcript the preview keeps, newest
+	// last: about three lines of Chinese.
+	previewTail = 90
+	miniBars    = 11
 )
 
 // tailText keeps the newest max runes, as a dictation bar shows the words
@@ -64,28 +66,39 @@ func drawMini(p *ui.Painter, r ui.Rect, bins [32]float64, phase string) {
 	}
 }
 
-// hudLine is what the capsule says in each phase.
-func hudLine(s Snapshot) (string, bool) {
+// hudLine is what the capsule says in each phase; the text itself shows in
+// the preview above it.
+func hudLine(s Snapshot) string {
 	switch s.Phase {
 	case "starting":
-		return "正在准备…", false
+		return "正在准备…"
 	case "recording", "tail":
 		if s.Partial == "" {
-			return "请说话…", false
+			return "请说话…"
 		}
-		return s.Partial, true
+		return "正在聆听…"
 	case "finalizing":
-		if s.Partial == "" {
-			return "正在识别…", false
-		}
-		return s.Partial, true
+		return "正在识别…"
 	case "refining":
-		return s.Original, true
+		return "AI 润色中…  可直接插入原文"
 	}
 	if s.Status != "" {
-		return s.Status, false
+		return s.Status
 	}
-	return "等待语音", false
+	return "等待语音"
+}
+
+// hudPreview is the text the preview above the capsule shows: what was
+// recognized so far, then while refinement runs the ASR original that the
+// confirm button would insert.
+func hudPreview(s Snapshot) string {
+	switch s.Phase {
+	case "recording", "tail", "finalizing":
+		return s.Partial
+	case "refining":
+		return s.Original
+	}
+	return ""
 }
 
 // DrawHUD renders the floating dictation capsule. It shares the snapshot of
@@ -95,6 +108,13 @@ func (v *View) DrawHUD(c *ui.Context) {
 	c.Root().Background(ui.Transparent)
 	s := v.Snapshot
 	ui.Box(c).Fill().Children(func() {
+		if text := hudPreview(s); text != "" {
+			ui.Box(c).Attach(ui.AnchorBottom, ui.AnchorBottom).Bottom(57).MaxWidth(HUDWidth-30).Padding(9, 15).
+				Radius(16).Background(ui.Hex("#121212")).Border(1, ui.RGBA(255, 255, 255, 0.12)).
+				Shadow(0, 7.5, 22.5, 0, ui.RGBA(0, 0, 0, 0.45)).Children(func() {
+				ui.Text(c, tailText(text, previewTail)).FontSize(13.5).LineHeight(1.45).MaxLines(3).TextColor(colText)
+			})
+		}
 		capsule := ui.Row(c).Attach(ui.AnchorBottom, ui.AnchorBottom).Bottom(10.5).Height(39).Padding(5.25).Gap(7.5).
 			Radius(19.5).Background(ui.Hex("#121212")).Border(1, ui.RGBA(255, 255, 255, 0.12)).
 			Shadow(0, 7.5, 22.5, 0, ui.RGBA(0, 0, 0, 0.45))
@@ -109,9 +129,8 @@ func (v *View) DrawHUD(c *ui.Context) {
 			phase := s.Phase
 			bins := s.Meter.Bins
 			ui.Box(c).Size(40.5, 19.5).Draw(func(p *ui.Painter, r ui.Rect) { drawMini(p, r, bins, phase) })
-			line, spoken := hudLine(s)
-			ui.Text(c, tailText(line, hudTail)).FontSize(11.25).FontWeight(500).SingleLine().MaxWidth(352.5).
-				TextColor(pick(spoken, colText, colMuted)).PaddingX(1.5)
+			ui.Text(c, hudLine(s)).FontSize(11.25).FontWeight(500).SingleLine().MaxWidth(352.5).
+				TextColor(colMuted).PaddingX(1.5)
 			commit := ui.ButtonBase(c.Key("hud-commit")).Size(28.5, 28.5).Radius(14.25).Center().Label("立即插入原文").
 				Tooltip("跳过 AI 润色，立即插入").Disabled(!s.CanCommit)
 			if s.CanCommit {

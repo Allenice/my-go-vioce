@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/updater"
 	updaterui "github.com/egoist/mygo/plugins/updater/native"
@@ -18,8 +19,10 @@ import (
 	"github.com/vfasky/my-ai-audio/gui/internal/refinement"
 	appui "github.com/vfasky/my-ai-audio/gui/internal/ui"
 	"github.com/vfasky/my-ai-audio/gui/internal/vocabulary"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -277,38 +280,89 @@ func (a *application) initialize() {
 			}
 		},
 		Put: func(previous string, t vocabulary.Term) {
-			if e := a.store.Put(t, false); e != nil {
-				a.view.Snapshot.Status = e.Error()
+			if e := a.store.Update(previous, t); e != nil {
+				a.view.Snapshot.Status = vocabularyError(e)
 			} else {
-				if previous != "" && vocabulary.Normalize(previous) != vocabulary.Normalize(t.Term) {
-					_ = a.store.Delete(previous, false)
-				}
 				a.saveVocabulary()
 			}
 			a.refresh()
 		},
-		Delete:    func(term string) { _ = a.store.Delete(term, false); a.saveVocabulary(); a.refresh() },
-		Configure: func(c refinement.Config) { a.config.Refinement = c; a.saveSettings(); a.refresh() },
+		Delete: func(term string) { _ = a.store.Delete(term, false); a.saveVocabulary(); a.refresh() },
+		PutReplacement: func(previous string, r vocabulary.Replacement) {
+			if e := a.store.PutReplacement(previous, r); e != nil {
+				a.view.Snapshot.Status = vocabularyError(e)
+			} else {
+				a.saveVocabulary()
+			}
+			a.refresh()
+		},
+		DeleteReplacement: func(from string) { a.store.DeleteReplacement(from); a.saveVocabulary(); a.refresh() },
+		ImportVocabulary:  a.importVocabulary,
+		ExportVocabulary:  a.exportVocabulary,
+		Configure: func(c refinement.Config, key string) {
+			a.config.Refinement = c
+			saved := a.writeSettings()
+			if key == "" || saved != nil {
+				msg, ok := settingsMessage(c, saved, false, nil)
+				a.setFeedback(c, msg, ok)
+				a.refresh()
+				return
+			}
+			go func() {
+				e := (keychain.Store{}).Set(ctxOrBackground(a.ctx), c.Endpoint, key)
+				a.post(func() {
+					msg, ok := settingsMessage(c, nil, true, e)
+					a.setFeedback(c, msg, ok)
+				})
+			}()
+		},
 		Credential: func(endpoint, secret string) {
+			c := a.view.Config
+			if msg, ok := credentialPrecheck(endpoint, secret); !ok {
+				a.setFeedback(c, msg, false)
+				a.refresh()
+				return
+			}
 			go func() {
 				e := (keychain.Store{}).Set(ctxOrBackground(a.ctx), endpoint, secret)
 				a.post(func() {
 					if e != nil {
-						a.view.Snapshot.Status = "Keychain save failed"
+						a.setFeedback(c, "API key 存入钥匙串失败，请重试或检查钥匙串访问权限。", false)
 					} else {
-						a.view.Snapshot.Status = "Credential saved in Keychain"
+						a.setFeedback(c, "API key 已存入钥匙串。", true)
 					}
 				})
 			}()
 		},
-		DeleteCredential: func(endpoint string) {
+		TestRemote: func(c refinement.Config, key string) {
+			if a.view.Snapshot.Testing {
+				return
+			}
+			a.view.Snapshot.Testing, a.view.Snapshot.Feedback = true, ""
+			a.refresh()
 			go func() {
-				e := (keychain.Store{}).Delete(a.ctx, endpoint)
+				out, err := refinement.Test(ctxOrBackground(a.ctx), c, key, keychain.Store{})
+				a.post(func() {
+					a.view.Snapshot.Testing = false
+					msg, ok := remoteTestMessage(out, err)
+					a.setFeedback(c, msg, ok)
+				})
+			}()
+		},
+		DeleteCredential: func(endpoint string) {
+			c := a.view.Config
+			if strings.TrimSpace(endpoint) == "" {
+				a.setFeedback(c, "请先填写端点：API key 按端点保存在钥匙串中。", false)
+				a.refresh()
+				return
+			}
+			go func() {
+				e := (keychain.Store{}).Delete(ctxOrBackground(a.ctx), endpoint)
 				a.post(func() {
 					if e != nil {
-						a.view.Snapshot.Status = "Keychain delete failed"
+						a.setFeedback(c, "没有删除：钥匙串中没有此端点的 API key，或无法访问钥匙串。", false)
 					} else {
-						a.view.Snapshot.Status = "Credential deleted"
+						a.setFeedback(c, "已从钥匙串删除此端点的 API key。", true)
 					}
 				})
 			}()
@@ -316,6 +370,86 @@ func (a *application) initialize() {
 	}
 	a.refresh()
 }
+
+// setFeedback shows the result of an action of the refinement page for the
+// draft c it acted on.
+func (a *application) setFeedback(c refinement.Config, msg string, ok bool) {
+	s := &a.view.Snapshot
+	s.Feedback, s.FeedbackOK, s.FeedbackFor = msg, ok, c
+}
+
+// settingsMessage tells how saving the refinement settings c ended: the
+// settings file, the typed API key when there was one, and what the remote
+// engine still lacks.
+func settingsMessage(c refinement.Config, saved error, typedKey bool, key error) (string, bool) {
+	if saved != nil {
+		return "保存设置失败：无法写入 ~/Library/Application Support/MyGo-GoVoice/。", false
+	}
+	msg := "设置已保存。"
+	if typedKey {
+		if key != nil {
+			return "设置已保存，但 API key 存入钥匙串失败，请重试。", false
+		}
+		msg = "设置已保存，API key 已存入钥匙串。"
+	}
+	if c.Engine == "remote" && refinement.CheckRemote(c) != nil {
+		return msg + "远端润色还需要以 https:// 开头的端点和模型名称。", false
+	}
+	return msg, true
+}
+
+// credentialPrecheck refuses to save a key without one or without the
+// endpoint that keys it in the keychain.
+func credentialPrecheck(endpoint, secret string) (string, bool) {
+	switch {
+	case strings.TrimSpace(endpoint) == "":
+		return "请先填写端点：API key 按端点保存在钥匙串中。", false
+	case secret == "":
+		return "请先输入 API key。", false
+	}
+	return "", true
+}
+
+// remoteTestMessage tells the user how the connection test of the
+// OpenAI-compatible interface ended, and what to check when it failed.
+func remoteTestMessage(res refinement.TestResult, err error) (string, bool) {
+	var status *refinement.StatusError
+	switch {
+	case err == nil:
+		out := res.Text
+		if r := []rune(out); len(r) > 60 {
+			out = string(r[:60]) + "…"
+		}
+		thinking := "已请求关闭思考模式"
+		if !res.ThinkingOff {
+			thinking = "该服务不接受关闭思考的参数，按模型默认方式调用"
+		}
+		return fmt.Sprintf("连接成功（%.1f 秒，%s），润色示例：%s", res.Elapsed.Seconds(), thinking, out), true
+	case errors.Is(err, refinement.ErrConfig):
+		return "请填写以 https:// 开头的端点（不含查询参数）和模型名称。", false
+	case errors.Is(err, refinement.ErrKey):
+		return "没有可用的 API key：请在上方输入，或先保存到钥匙串。", false
+	case errors.Is(err, context.DeadlineExceeded):
+		return "连接超时（30 秒）：请检查端点地址和网络。", false
+	case errors.Is(err, refinement.ErrResponse):
+		return "已连接，但返回内容不符合所选接口格式：请确认接口类型（Chat Completions 或 Responses）。", false
+	case errors.As(err, &status):
+		switch code := status.Code; {
+		case code == 401 || code == 403:
+			return fmt.Sprintf("API key 无效或没有权限（HTTP %d）。", code), false
+		case code == 404:
+			return "找不到接口或模型（HTTP 404）：请检查端点是否包含 /v1 等版本路径，以及模型名称。", false
+		case code == 429:
+			return "请求过于频繁或额度不足（HTTP 429）。", false
+		case code >= 500:
+			return fmt.Sprintf("服务端出错（HTTP %d），请稍后再试。", code), false
+		default:
+			return fmt.Sprintf("服务拒绝了请求（HTTP %d）：请检查模型名称和接口类型。", code), false
+		}
+	}
+	return "无法连接到端点：请检查地址、网络或代理设置。", false
+}
+
 func ctxOrBackground(ctx context.Context) context.Context {
 	if ctx == nil {
 		return context.Background()
@@ -323,20 +457,22 @@ func ctxOrBackground(ctx context.Context) context.Context {
 	return ctx
 }
 func (a *application) saveSettings() {
+	if a.writeSettings() != nil {
+		a.view.Snapshot.Status = "保存设置失败"
+	}
+}
+
+// writeSettings replaces settings.json atomically.
+func (a *application) writeSettings() error {
 	if e := os.MkdirAll(a.directory, 0700); e != nil {
-		a.view.Snapshot.Status = "Settings unavailable"
-		return
+		return e
 	}
 	b, _ := json.Marshal(a.config)
 	tmp := filepath.Join(a.directory, "settings.json.tmp")
-	if e := os.WriteFile(tmp, b, 0600); e == nil {
-		e = os.Rename(tmp, filepath.Join(a.directory, "settings.json"))
-		if e != nil {
-			a.view.Snapshot.Status = "Settings save failed"
-		}
-	} else {
-		a.view.Snapshot.Status = "Settings save failed"
+	if e := os.WriteFile(tmp, b, 0600); e != nil {
+		return e
 	}
+	return os.Rename(tmp, filepath.Join(a.directory, "settings.json"))
 }
 func (a *application) saveVocabulary() {
 	if e := a.store.Save(filepath.Join(a.directory, "vocabulary.json")); e != nil {
@@ -356,6 +492,7 @@ func (a *application) refresh() {
 	s.Original = c.Original
 	s.Refined = c.Refined
 	s.Terms = append([]vocabulary.Term(nil), a.store.Terms...)
+	s.Replacements = append([]vocabulary.Replacement(nil), a.store.Replacements...)
 	s.Config = a.config.Refinement
 	s.CanCommit = c.CanCommit()
 	s.Permissions = make(permission.Set, len(a.permissions))
@@ -694,7 +831,107 @@ func (a *application) onSpeech(e bridge.Event) {
 		}
 		return
 	}
+	if e.Type == "partial" || e.Type == "final" {
+		// Known misrecognitions become their terms before anything shows,
+		// inserts or refines the text.
+		e.Text = a.store.Correct(e.Text)
+	}
 	a.effects(a.coordinator.Speech(e.Type, e.SessionID, e.Text, time.Now()))
+}
+
+// jsonFiles is the filter of the vocabulary file dialogs.
+var jsonFiles = []mygo.FileFilter{{Name: "JSON", Extensions: []string{"json"}}}
+
+// importVocabulary merges a JSON file the user picks into the vocabulary.
+func (a *application) importVocabulary() {
+	go func() {
+		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: a.window, Title: "导入词库", ButtonLabel: "导入", Filters: jsonFiles})
+		if err != nil || len(paths) == 0 {
+			return
+		}
+		b, err := readLimited(paths[0], 2*1024*1024)
+		a.post(func() {
+			if err != nil {
+				a.setVocabFeedback("无法读取文件："+filepath.Base(paths[0]), false)
+				return
+			}
+			res, err := a.store.Import(b)
+			if err != nil {
+				a.setVocabFeedback("导入失败：这不是 go-voice 导出的词库 JSON 文件。", false)
+				return
+			}
+			a.saveVocabulary()
+			a.setVocabFeedback(importMessage(res), true)
+		})
+	}()
+}
+
+// exportVocabulary writes the terms and replacements to a JSON file the
+// user picks.
+func (a *application) exportVocabulary() {
+	b, err := a.store.Export()
+	if err != nil {
+		a.setVocabFeedback("导出失败。", false)
+		return
+	}
+	terms, replacements := len(a.store.Terms), len(a.store.Replacements)
+	go func() {
+		path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{Parent: a.window, Title: "导出词库", ButtonLabel: "导出", DefaultPath: "go-voice-vocabulary.json", Filters: jsonFiles})
+		if err != nil || path == "" {
+			return
+		}
+		err = os.WriteFile(path, b, 0o644)
+		a.post(func() {
+			if err != nil {
+				a.setVocabFeedback("导出失败：无法写入 "+filepath.Base(path), false)
+				return
+			}
+			a.setVocabFeedback(fmt.Sprintf("已导出 %d 个词条、%d 条替换词到 %s。", terms, replacements, filepath.Base(path)), true)
+		})
+	}()
+}
+
+func (a *application) setVocabFeedback(msg string, ok bool) {
+	a.view.Snapshot.VocabFeedback, a.view.Snapshot.VocabFeedbackOK = msg, ok
+}
+
+// importMessage tells what an import added, updated and skipped.
+func importMessage(r vocabulary.ImportResult) string {
+	msg := fmt.Sprintf("已导入：新增 %d 个词条、%d 条替换词", r.TermsAdded, r.ReplacementsAdded)
+	if r.TermsUpdated+r.ReplacementsUpdated > 0 {
+		msg += fmt.Sprintf("，更新 %d 个词条、%d 条替换词", r.TermsUpdated, r.ReplacementsUpdated)
+	}
+	if r.Skipped > 0 {
+		msg += fmt.Sprintf("，跳过 %d 条无效或冲突的内容", r.Skipped)
+	}
+	return msg + "。"
+}
+
+// readLimited reads a file of at most limit bytes.
+func readLimited(path string, limit int64) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if err == nil && int64(len(b)) > limit {
+		err = errors.New("file too large")
+	}
+	return b, err
+}
+
+// vocabularyError says why a term was not saved.
+func vocabularyError(e error) string {
+	switch {
+	case errors.Is(e, vocabulary.ErrReplacementTaken):
+		return "这个原词已经有替换词了，请编辑原来那一条"
+	case errors.Is(e, vocabulary.ErrReplacementIsTerm):
+		return "原词是词库中的词条，不能被替换"
+	case errors.Is(e, vocabulary.ErrInvalidReplacement):
+		return "替换词无效：原词和替换词都要填写且不能相同，原词最多 64 字"
+	}
+	return "词条无效，未保存"
 }
 func (a *application) effects(effects []device.Effect) {
 	for _, e := range effects {
@@ -729,6 +966,13 @@ func (a *application) effects(effects []device.Effect) {
 	a.refresh()
 }
 func (a *application) refine(e device.Effect) {
+	if a.config.Refinement.Mode == "off" {
+		// No refinement: insert the recognized text, with the vocabulary's
+		// replacements, at once.
+		a.view.Snapshot.Status = "disabled"
+		a.effects(a.coordinator.Speech("refinement_done", e.ID, a.store.Correct(e.Text), time.Now()))
+		return
+	}
 	ctx, cancel := context.WithCancel(a.ctx)
 	a.refineCancel = cancel
 	reply := make(chan string, 1)
@@ -756,6 +1000,8 @@ func (a *application) refine(e device.Effect) {
 				return
 			}
 			a.view.Snapshot.Status = status
+			// The model must not bring a misrecognition back.
+			out = a.store.Correct(out)
 			a.effects(a.coordinator.Speech("refinement_done", e.ID, out, time.Now()))
 		})
 	}()

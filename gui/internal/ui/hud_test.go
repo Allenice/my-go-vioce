@@ -4,6 +4,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -18,21 +19,38 @@ func TestTailTextKeepsNewestWords(t *testing.T) {
 	}
 }
 
-func TestHUDLineFollowsPhase(t *testing.T) {
+func TestHUDLineAndPreviewFollowPhase(t *testing.T) {
 	cases := []struct {
-		s      Snapshot
-		line   string
-		spoken bool
+		s             Snapshot
+		line, preview string
 	}{
-		{Snapshot{Phase: "recording"}, "请说话…", false},
-		{Snapshot{Phase: "recording", Partial: "你好"}, "你好", true},
-		{Snapshot{Phase: "refining", Partial: "你好", Original: "你好。"}, "你好。", true},
-		{Snapshot{Phase: "ready", Status: "已取消"}, "已取消", false},
+		{Snapshot{Phase: "starting"}, "正在准备…", ""},
+		{Snapshot{Phase: "recording"}, "请说话…", ""},
+		{Snapshot{Phase: "recording", Partial: "你好"}, "正在聆听…", "你好"},
+		{Snapshot{Phase: "finalizing", Partial: "你好世界"}, "正在识别…", "你好世界"},
+		{Snapshot{Phase: "refining", Partial: "你好", Original: "你好。"}, "AI 润色中…  可直接插入原文", "你好。"},
+		{Snapshot{Phase: "ready", Status: "已取消", Partial: "旧文字"}, "已取消", ""},
 	}
 	for _, c := range cases {
-		if line, spoken := hudLine(c.s); line != c.line || spoken != c.spoken {
-			t.Fatalf("%+v: %q %v", c.s, line, spoken)
+		if line, preview := hudLine(c.s), hudPreview(c.s); line != c.line || preview != c.preview {
+			t.Fatalf("%+v: %q %q", c.s, line, preview)
 		}
+	}
+}
+
+func TestHUDShowsPreviewText(t *testing.T) {
+	var rec intents
+	v := testView(&rec)
+	long := strings.Repeat("一二三四五六七八九十", 12) + "最新的话"
+	v.Snapshot.SpeechActive, v.Snapshot.Phase, v.Snapshot.Partial = true, "recording", long
+	tt := ui.NewTester(v.DrawHUD, HUDWidth, HUDHeight)
+	if !tt.HasText(tailText(long, previewTail)) || !tt.HasText("正在聆听…") {
+		t.Fatalf("preview %q", tt.Texts())
+	}
+	v.Snapshot.Phase, v.Snapshot.Partial = "recording", ""
+	tt.Frame()
+	if tt.HasText(tailText(long, previewTail)) || !tt.HasText("请说话…") {
+		t.Fatalf("empty preview %q", tt.Texts())
 	}
 }
 
@@ -56,7 +74,7 @@ func TestHUDCommitOnlyWhenAllowed(t *testing.T) {
 		t.Fatalf("commit: %v", err)
 	}
 	if dir := os.Getenv("GOVOICE_UI_SNAPSHOTS"); dir != "" {
-		v.Snapshot.Phase = "recording"
+		v.Snapshot.Phase, v.Snapshot.Partial = "recording", "今天下午三点我们在会议室讨论 Go Voice 的发布计划，先确认签名和公证流程，再安排第一批用户测试自动更新"
 		for i := range v.Snapshot.Meter.Bins {
 			v.Snapshot.Meter.Bins[i] = []float64{0.05, 0.3, 0.12, 0.5, 0.2}[i%5]
 		}

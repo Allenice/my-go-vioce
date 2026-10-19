@@ -23,10 +23,22 @@ type Snapshot struct {
 	Ready                                                                            bool
 	Meter                                                                            protocol.Meter
 	Terms                                                                            []vocabulary.Term
-	Config                                                                           refinement.Config
-	Permissions                                                                      permission.Set
+	Replacements                                                                     []vocabulary.Replacement
+	// VocabFeedback is how the last import or export of the vocabulary
+	// ended.
+	VocabFeedback   string
+	VocabFeedbackOK bool
+	Config          refinement.Config
+	Permissions     permission.Set
 	// CanCommit: the dictation capsule may insert the ASR original now.
 	CanCommit bool
+	// Testing: the connection test of the OpenAI-compatible interface runs.
+	Testing bool
+	// Feedback is how the last action of the refinement page ended (test,
+	// save, keychain), for FeedbackFor: it hides once the draft differs.
+	Feedback    string
+	FeedbackOK  bool
+	FeedbackFor refinement.Config
 }
 type Actions struct {
 	FirmwareScan, FirmwareInstall func()
@@ -35,11 +47,21 @@ type Actions struct {
 	Select                        func(string)
 	Put                           func(string, vocabulary.Term)
 	Delete                        func(string)
-	Configure                     func(refinement.Config)
-	Credential                    func(string, string)
-	DeleteCredential              func(string)
-	RequestPermission             func(permission.Name)
-	OpenSettings                  func(permission.Name)
+	// PutReplacement saves a replacement in place of the one from previous.
+	PutReplacement    func(previous string, r vocabulary.Replacement)
+	DeleteReplacement func(from string)
+	// ImportVocabulary and ExportVocabulary pick a JSON file and merge it
+	// into, or write, the terms and replacements.
+	ImportVocabulary, ExportVocabulary func()
+	// Configure saves the settings, and a typed API key to the keychain.
+	Configure  func(refinement.Config, string)
+	Credential func(string, string)
+	// TestRemote checks the interface as the page shows it, with the typed
+	// API key, else the saved one.
+	TestRemote        func(refinement.Config, string)
+	DeleteCredential  func(string)
+	RequestPermission func(permission.Name)
+	OpenSettings      func(permission.Name)
 	// Commit skips refinement and inserts the ASR original.
 	Commit func()
 }
@@ -48,9 +70,14 @@ type View struct {
 	Snapshot              Snapshot
 	Actions               Actions
 	term, editing, secret string
-	locked                bool
-	Config                refinement.Config
-	Loaded                bool
+	// The replacement editor: the source and target typed, and the source
+	// of the replacement being edited.
+	from, to, editingFrom string
+	// vocabTab is the tab of the vocabulary page: terms or replacements.
+	vocabTab int
+	locked   bool
+	Config   refinement.Config
+	Loaded   bool
 	// AppIcon is the packaged app icon shown at the top of the sidebar.
 	AppIcon *ui.Bitmap
 }
@@ -199,9 +226,9 @@ func (v *View) pane(c *ui.Context) {
 				ui.Text(c, page.subtitle).FontSize(11).TextColor(colMuted).SingleLine()
 			})
 			ui.Row(c).Height(30).PaddingX(12).Gap(8).Radius(15).Material(glass.Glass{}).Children(func() {
-				ready := strings.Contains(strings.ToLower(v.Snapshot.Model), "ready")
-				statusDot(c, pick(ready, colGreen, colFaint))
-				ui.Text(c, "zh-CN · "+fallback(v.Snapshot.Model, "准备中")).FontSize(11.5).TextColor(colSubtle).SingleLine().MaxWidth(220)
+				label, state := modelStatus(v.Snapshot.Model)
+				statusDot(c, pick(state == modelReady, colGreen, pick(state == modelFailed, colRed, colFaint)))
+				ui.Text(c, label).FontSize(11.5).TextColor(colSubtle).SingleLine().MaxWidth(220)
 			})
 		})
 		if v.Snapshot.Status != "" {
@@ -212,6 +239,30 @@ func (v *View) pane(c *ui.Context) {
 			})
 		}
 	})
+}
+
+type modelState int
+
+const (
+	modelPreparing modelState = iota
+	modelReady
+	modelFailed
+)
+
+// modelStatus says in the interface's language how far SpeechBridge got in
+// preparing the zh-CN speech model, from the messages of its warmup.
+func modelStatus(message string) (string, modelState) {
+	switch m := strings.ToLower(message); {
+	case strings.Contains(m, "unavailable"):
+		return "中文语音模型不可用", modelFailed
+	case strings.Contains(m, "warmed"):
+		return "中文语音模型已就绪", modelReady
+	case strings.Contains(m, "downloading"):
+		return "正在下载中文语音模型", modelPreparing
+	case strings.Contains(m, "checking"):
+		return "正在检查中文语音模型", modelPreparing
+	}
+	return "正在准备中文语音模型", modelPreparing
 }
 
 func phaseLabel(p string) string {
@@ -236,9 +287,47 @@ func phaseLabel(p string) string {
 	return "等待连接"
 }
 
+// isConnected reports whether the selected device is connected.
+func isConnected(p string) bool { return p != "" && p != "disconnected" }
+
 func isLive(p string) bool { return p == "starting" || p == "recording" || p == "tail" }
 func isWorking(p string) bool {
 	return p == "finalizing" || p == "refining" || p == "inserting"
+}
+
+// cardScans reports whether the device card shows the scan button: while no
+// session runs and no device is connected.
+func cardScans(s Snapshot) bool { return !s.SpeechActive && !isConnected(s.Phase) }
+
+// deviceActions are the buttons of the device card, only those that apply
+// now: scan while no device is connected, cancel while a session runs, and
+// retry the speech model when its preparation failed.
+func (v *View) deviceActions(c *ui.Context) {
+	s := v.Snapshot
+	_, model := modelStatus(s.Model)
+	retry := model == modelFailed && !s.SpeechActive
+	if !cardScans(s) && !s.SpeechActive && !retry {
+		return
+	}
+	ui.Row(c).Justify(ui.Center).Gap(12).Wrap().GapY(12).Children(func() {
+		switch {
+		case s.SpeechActive:
+			if pill(c, "cancel", "取消本次语音", pillSecondary, iconClose, nil, false) {
+				v.Actions.Cancel()
+			}
+		case s.Selected == "":
+			if pill(c, "scan", "扫描附近设备", pillPrimary, nil, nil, s.Install.Busy()) {
+				v.Actions.Scan()
+			}
+		case cardScans(s):
+			if pill(c, "scan", "重新扫描", pillSecondary, nil, nil, s.Install.Busy()) {
+				v.Actions.Scan()
+			}
+		}
+		if retry && pill(c, "warmup", "重新准备语音模型", pillSecondary, nil, nil, false) {
+			v.Actions.Warmup()
+		}
+	})
 }
 
 func (v *View) deviceName() string {
@@ -259,18 +348,6 @@ func (v *View) device(c *ui.Context) {
 	if missing := s.Permissions.Missing(); len(missing) > 0 {
 		v.permissionBanner(c, missing)
 	}
-	ui.Row(c).Gap(16).Wrap().GapY(12).Children(func() {
-		if pill(c, "warmup", "准备 zh-CN 模型", pillSecondary, iconPlay, nil, s.SpeechActive) {
-			v.Actions.Warmup()
-		}
-		ui.Box(c).Grow(1).MinWidth(40).Height(1).Background(colRule)
-		if pill(c, "scan", "扫描 FoloToy AI Passport", pillPrimary, nil, iconArrow, s.Install.Busy()) {
-			v.Actions.Scan()
-		}
-		if pill(c, "cancel", "取消本次语音", pillSecondary, nil, iconClose, !s.SpeechActive) {
-			v.Actions.Cancel()
-		}
-	})
 	ui.RichText(c,
 		ui.Span{Text: "仅使用 "},
 		ui.Span{Text: "FoloToy AI Passport 音频", Weight: 650},
@@ -287,6 +364,7 @@ func (v *View) device(c *ui.Context) {
 			}
 			ui.Text(c, sub).FontSize(14).TextColor(colSubtle).SingleLine()
 		})
+		v.deviceActions(c)
 		// One well follows the session: idle dots, live bars, then a pulse while
 		// recognition, refinement and insertion run.
 		meter := s.Meter
@@ -305,8 +383,6 @@ func (v *View) device(c *ui.Context) {
 		})
 	})
 
-	notice(c, "v1", "V1 未认证连接：设备 UUID 仅用于选择，不证明设备身份。", true)
-
 	group(c, "transcript", "本次语音", nil, func() {
 		for _, pair := range [][2]string{{"实时转写", s.Partial}, {"最终 ASR 原文", s.Original}, {"润色结果", s.Refined}} {
 			row(c, pair[0], func() {
@@ -320,6 +396,10 @@ func (v *View) device(c *ui.Context) {
 	})
 
 	group(c, "devices", "附近的 FoloToy AI Passport", func() {
+		// The card offers scanning while no device is connected.
+		if !cardScans(s) && smallPill(c, "rescan", "扫描", pillGhost, nil, s.Install.Busy()) {
+			v.Actions.Scan()
+		}
 		if s.Selected != "" {
 			if smallPill(c, "forget", "忘记设备", pillGhost, nil, false) {
 				v.Actions.Forget()
@@ -328,7 +408,7 @@ func (v *View) device(c *ui.Context) {
 	}, func() {
 		if len(s.Devices) == 0 {
 			row(c, "empty", func() {
-				ui.Text(c, "尚未发现设备。点击“扫描 FoloToy AI Passport”开始搜索附近的设备。").FontSize(13).TextColor(colMuted)
+				ui.Text(c, "尚未发现设备。打开 FoloToy AI Passport 后点击“扫描”。").FontSize(13).TextColor(colMuted)
 			})
 		}
 		for _, d := range s.Devices {
@@ -465,7 +545,25 @@ func (v *View) firmware(c *ui.Context) {
 }
 
 func (v *View) vocabulary(c *ui.Context) {
-	notice(c, "vocab", "动态词库在下一次语音开始时应用 Top 100；锁定词不能被 AI 自动删除。", false)
+	tabs := []string{fmt.Sprintf("词条 · %d", len(v.Snapshot.Terms)), fmt.Sprintf("替换词 · %d", len(v.Snapshot.Replacements))}
+	ui.Row(c).Gap(10).Children(func() {
+		segmented(c, "vocab-tabs", &v.vocabTab, tabs)
+		ui.Box(c).Grow(1)
+		if smallPill(c, "import-vocab", "导入", pillSecondary, iconDownload, false) {
+			v.Actions.ImportVocabulary()
+		}
+		if smallPill(c, "export-vocab", "导出", pillSecondary, nil, false) {
+			v.Actions.ExportVocabulary()
+		}
+	})
+	if v.Snapshot.VocabFeedback != "" {
+		feedback(c, v.Snapshot.VocabFeedback, v.Snapshot.VocabFeedbackOK)
+	}
+	if v.vocabTab == 1 {
+		v.replacements(c)
+		return
+	}
+	notice(c, "vocab", "词条帮助识别和 AI 润色认出专有名词：下一次语音开始时应用 Top 100；锁定词不能被 AI 自动删除。", false)
 	title := "添加词条"
 	if v.editing != "" {
 		title = "编辑词条"
@@ -485,8 +583,7 @@ func (v *View) vocabulary(c *ui.Context) {
 			}
 			if smallPill(c, "save-term", pick2(v.editing != "", "更新", "保存"), pillPrimary, iconPlus, strings.TrimSpace(v.term) == "") {
 				v.Actions.Put(v.editing, vocabulary.Term{Term: v.term, Source: "manual", Weight: 50, Locked: v.locked})
-				v.term = ""
-				v.editing = ""
+				v.term, v.editing = "", ""
 			}
 		})
 	})
@@ -520,6 +617,55 @@ func (v *View) vocabulary(c *ui.Context) {
 	})
 }
 
+// replacements is the replacement tab of the vocabulary page: what
+// recognition writes, and what it becomes before anything else sees it.
+func (v *View) replacements(c *ui.Context) {
+	notice(c, "replace", "识别结果中出现原词时，会直接改成替换词，不经过 AI；胶囊预览、插入的原文和 AI 润色看到的都是替换后的文字。英文原词不区分大小写，只匹配完整单词。", false)
+	title := "添加替换词"
+	if v.editingFrom != "" {
+		title = "编辑替换词"
+	}
+	group(c, "replace-editor", title, nil, func() {
+		row(c, "replace-input", func() {
+			ui.TextInput(c, &v.from).Placeholder("原词：识别出的错误写法，如 施玉宝").Grow(1).Basis(0).Label("原词")
+			ui.Text(c, "→").FontSize(15).TextColor(colMuted).Shrink(0)
+			ui.TextInput(c, &v.to).Placeholder("替换词：正确写法，如 私域宝").Grow(1).Basis(0).Label("替换词")
+			if v.editingFrom != "" {
+				if smallPill(c, "cancel-replace", "取消", pillGhost, nil, false) {
+					v.from, v.to, v.editingFrom = "", "", ""
+				}
+			}
+			empty := strings.TrimSpace(v.from) == "" || strings.TrimSpace(v.to) == ""
+			if smallPill(c, "save-replace", pick2(v.editingFrom != "", "更新", "保存"), pillPrimary, iconPlus, empty) {
+				v.Actions.PutReplacement(v.editingFrom, vocabulary.Replacement{From: v.from, To: v.to})
+				v.from, v.to, v.editingFrom = "", "", ""
+			}
+		})
+	})
+	group(c, "replacements", fmt.Sprintf("替换词 · %d", len(v.Snapshot.Replacements)), nil, func() {
+		if len(v.Snapshot.Replacements) == 0 {
+			row(c, "none", func() {
+				ui.Text(c, "还没有替换词。某个词总被识别错时，把错误写法和正确写法添加到这里。").FontSize(13).TextColor(colMuted)
+			})
+		}
+		for _, r := range v.Snapshot.Replacements {
+			row(c, "replace-"+vocabulary.Normalize(r.From), func() {
+				ui.Row(c).Grow(1).MinWidth(0).Gap(10).Children(func() {
+					ui.Text(c, r.From).FontSize(14).TextColor(colSubtle).SingleLine().Shrink(1)
+					ui.Text(c, "→").FontSize(14).TextColor(colMuted).Shrink(0)
+					ui.Text(c, r.To).FontSize(14).FontWeight(500).SingleLine().Shrink(1)
+				})
+				if smallPill(c, "edit-replace", "编辑", pillGhost, nil, false) {
+					v.from, v.to, v.editingFrom = r.From, r.To, r.From
+				}
+				if smallPill(c, "delete-replace", "删除", pillDanger, nil, false) {
+					v.Actions.DeleteReplacement(r.From)
+				}
+			})
+		}
+	})
+}
+
 func sourceLabel(s string) string {
 	switch s {
 	case "manual":
@@ -543,7 +689,7 @@ func (v *View) refinement(c *ui.Context) {
 			}
 		})
 		row(c, "mode", func() {
-			label(c, "模式", "失败、超时或忠实度过低时保留 ASR 原文。")
+			label(c, "模式", modeHelp(v.Config.Mode))
 			if i := indexOf(modes, v.Config.Mode); segmented(c, "mode-seg", &i, modeLabels) {
 				v.Config.Mode = modes[i]
 			}
@@ -573,14 +719,64 @@ func (v *View) refinement(c *ui.Context) {
 			v.Actions.DeleteCredential(v.Config.Endpoint)
 		}
 		ui.Box(c).Grow(1).MinWidth(24).Height(1).Background(colRule)
+		if pill(c, "test-remote", pickText(v.Snapshot.Testing, "正在测试…", "测试连接"), pillSecondary, nil, nil, v.Snapshot.Testing) {
+			v.Actions.TestRemote(v.Config, v.secret)
+		}
 		if pill(c, "save-cred", "保存到钥匙串", pillSecondary, iconKey, nil, false) {
 			v.Actions.Credential(v.Config.Endpoint, v.secret)
-			v.secret = ""
+			v.clearSecret()
 		}
 		if pill(c, "save-config", "保存设置", pillPrimary, nil, iconArrow, false) {
-			v.Actions.Configure(v.Config)
+			v.Actions.Configure(v.Config, v.secret)
+			v.clearSecret()
 		}
 	})
+	s := v.Snapshot
+	if s.Feedback != "" && !s.Testing && s.FeedbackFor == v.Config {
+		feedback(c, s.Feedback, s.FeedbackOK)
+	}
+}
+
+// clearSecret forgets the typed API key once it was handed over to be
+// saved; without an endpoint, which keys it, it stays for another try.
+func (v *View) clearSecret() {
+	if strings.TrimSpace(v.Config.Endpoint) != "" {
+		v.secret = ""
+	}
+}
+
+// feedback shows how the last action of the page ended: green when it
+// succeeded, red when it needs attention.
+func feedback(c *ui.Context, text string, ok bool) {
+	fg, bg, glyph := colRed, colRedSoft, iconWarn
+	if ok {
+		fg, bg, glyph = colGreen, ui.RGBA(48, 209, 88, 0.12), iconCheck
+	}
+	ui.Row(c.Key("feedback")).Padding(12, 16).Gap(10).Radius(14).Background(bg).Children(func() {
+		ui.Icon(c, glyph).Size(15, 15).TextColor(fg).Shrink(0).AlignSelf(ui.Start)
+		ui.Text(c, text).FontSize(13).LineHeight(1.5).TextColor(colText).Grow(1).MinWidth(0).Selectable()
+	})
+}
+
+// modeHelp says what a refinement mode changes; every mode keeps the ASR
+// original when it fails, times out or strays from it.
+func modeHelp(mode string) string {
+	switch mode {
+	case "off":
+		return "不润色，直接插入识别结果；词库替换词仍然生效。"
+	case "names":
+		return "只按词库纠正专有名词，其他文字和标点不动。"
+	case "structured":
+		return "在轻度的基础上按内容分段或列点，不改写内容。"
+	}
+	return "按词库纠正专有名词，去掉“喂、嗯、那个”等语气词并修正标点，不改写内容。"
+}
+
+func pickText(cond bool, a, b string) string {
+	if cond {
+		return a
+	}
+	return b
 }
 
 func label(c *ui.Context, title, detail string) {

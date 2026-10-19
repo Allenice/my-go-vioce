@@ -12,6 +12,7 @@ MyGo is an independently implemented Go Voice desktop host. The Go Voice artwork
 | go-text/typesetting v0.3.5 | MyGo text layout dependency | Retained original LICENSE and HarfBuzz notice in `licenses/` |
 | golang.org/x/image v0.46.0 | MyGo image dependency | BSD; `licenses/x-image-BSD.txt` |
 | golang.org/x/text v0.43.0 | MyGo locale (i18n) dependency | BSD; `licenses/x-text-BSD.txt` |
+| go-pinyin v0.21.0, <https://github.com/mozillazg/go-pinyin> | Pinyin readings that find homophones of vocabulary terms for refinement | MIT, Copyright (c) 2016 mozillazg; `licenses/go-pinyin-MIT.txt` |
 | espflash 4.6.0, <https://github.com/esp-rs/espflash> | Rust library used by FirmwareHelper for USB flashing; an esp-rs project, not Espressif's official primary flashing tool | MIT OR Apache-2.0; full upstream texts in `licenses/espflash-MIT.txt` and `licenses/espflash-Apache-2.0.txt`; version pinned by `firmware-helper/Cargo.lock` |
 | serialport 4.10.1, <https://crates.io/crates/serialport/4.10.1> | macOS serial enumeration and access used by FirmwareHelper and espflash | MPL-2.0; full crate license in `licenses/serialport-MPL-2.0.txt`; unmodified source is available at the exact crates.io version |
 | Yap, <https://github.com/FrigadeHQ/yap> | Architecture reference for SpeechAnalyzer, target capture, conditional clipboard restore, local refinement | No Yap source was copied; implementation follows the repository's bilingual design notes and installed SDK APIs |

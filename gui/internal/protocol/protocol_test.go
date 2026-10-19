@@ -3,6 +3,7 @@ package protocol
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"math"
 	"testing"
 	"time"
@@ -209,5 +210,26 @@ func TestMeter(t *testing.T) {
 	m.Add(p)
 	if math.Abs(m.RMS-.5) > 1e-9 || m.Peak != .5 || m.Bins[31] != .5 || m.Duration() != 20*time.Millisecond {
 		t.Fatal(m)
+	}
+}
+
+func TestStreamLimitsSayWhy(t *testing.T) {
+	start := time.Unix(1000, 0)
+	s := NewStream(1, start)
+	if _, e := s.Tick(start.Add(3 * time.Second)); !errors.Is(e, ErrSilence) || !errors.Is(e, ErrLimit) {
+		t.Fatalf("silence: %v", e)
+	}
+	s = NewStream(1, start)
+	s.last = start.Add(5 * time.Minute)
+	if _, e := s.Tick(start.Add(5 * time.Minute)); !errors.Is(e, ErrTooLong) {
+		t.Fatalf("too long: %v", e)
+	}
+	if _, e := NewStream(1, start).Push(Frame{SessionID: 1, Sequence: MaxFrames}, start); !errors.Is(e, ErrSequence) || !errors.Is(e, ErrLimit) {
+		t.Fatalf("sequence: %v", e)
+	}
+	for _, e := range []error{ErrSilence, ErrTooLong, ErrSequence, ErrBacklog, ErrMissing} {
+		if e.Error() == ErrLimit.Error() {
+			t.Fatalf("%v says no reason", e)
+		}
 	}
 }
