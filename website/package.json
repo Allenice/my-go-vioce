@@ -2,7 +2,7 @@
   "name": "go-voice-website",
   "private": true,
   "type": "module",
-  "description": "go-voice product and download website (Cloudflare Workers static assets)",
+  "description": "go-voice Chinese product and download website (Cloudflare Workers static assets)",
   "scripts": {
     "sync": "bun scripts/sync-releases.mjs",
     "dev": "bun scripts/dev.mjs",

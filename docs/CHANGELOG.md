@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- Prepare `go-voice` 0.3.0 with Omni Realtime WebSocket dictation, separate debug identities and the Bun watch entry point; refresh the website's recognition overview and 0.3.0 download links, and show its introduction and release history in Simplified Chinese only.
+
 - Add a root `package.json` with `bun run dev` to launch the existing signed debug watch session: Go source and configuration changes rebuild and restart the app, and Ctrl+C stops the session. No JavaScript dependencies are required.
 
 - Add Alibaba Cloud Omni Realtime WebSocket dictation to `go-voice`, with configurable WSS endpoint and model, provider/endpoint-specific Keychain credentials, input transcription previews and manual submission on key release. Consume input transcription only, without generating assistant replies; connection testing sends silence and failures do not switch engines.

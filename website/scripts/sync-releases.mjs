@@ -1,6 +1,6 @@
 // Generates public/data/releases.json at deploy time so visitors never call the GitHub API.
-// Downloads come from go-voice-v* releases; bilingual notes come from the "## <version>"
-// sections of gui/docs/CHANGELOG.md and CHANGELOG.zh_CN.md.
+// Downloads come from go-voice-v* releases; Chinese notes come from the
+// "## <version>" sections of gui/docs/CHANGELOG.zh_CN.md.
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,7 +33,6 @@ async function changelog(name) {
   return sections;
 }
 const notesZh = await changelog("CHANGELOG.zh_CN.md");
-const notesEn = await changelog("CHANGELOG.md");
 
 const releases = [];
 for (const r of await res.json()) {
@@ -41,14 +40,12 @@ for (const r of await res.json()) {
   const version = r.tag_name.slice(TAG_PREFIX.length);
   const find = (re) => r.assets.find((a) => re.test(a.name))?.browser_download_url ?? null;
   const zh = notesZh[version]?.length ? notesZh[version] : bullets((r.body || "").replace(/\r\n/g, "\n"));
-  const en = notesEn[version] ?? [];
-  if (!en.length) console.warn(`warning: gui/docs/CHANGELOG.md has no ${version} section; the English page will show Chinese notes.`);
   releases.push({
     version,
     tag: r.tag_name,
     date: r.published_at,
     url: r.html_url,
-    notes: { zh, en: en.length ? en : zh },
+    notes: { zh },
     downloads: {
       appleSilicon: find(/macOS-AppleSilicon\.dmg$/),
       checksums: find(/^SHA256SUMS\.txt$/),

@@ -1,46 +1,12 @@
 (() => {
-  const root = document.documentElement;
-  const titles = {
-    zh: "go-voice — 用 FoloToy AI Passport 在 Mac 上语音输入",
-    en: "go-voice — Voice input for macOS with the FoloToy AI Passport",
-  };
-
-  const saved = (() => { try { return localStorage.getItem("lang"); } catch { return null; } })();
-  const initial = saved || (/^zh/i.test(navigator.language || "") ? "zh" : "en");
-
-  function setLang(lang) {
-    root.dataset.lang = lang;
-    root.lang = lang === "zh" ? "zh-CN" : "en";
-    document.title = titles[lang];
-    try { localStorage.setItem("lang", lang); } catch {}
-    renderDates();
-  }
-
-  document.getElementById("lang").addEventListener("click", () => {
-    setLang(root.dataset.lang === "zh" ? "en" : "zh");
-  });
-
-  const fmt = (iso, lang) =>
-    new Date(iso).toLocaleDateString(lang === "zh" ? "zh-CN" : "en-US", { year: "numeric", month: "long", day: "numeric" });
-
-  function renderDates() {
-    document.querySelectorAll("[data-date]").forEach((el) => {
-      el.textContent = fmt(el.dataset.date, el.dataset.dl);
-    });
-  }
+  const fmt = (iso) =>
+    new Date(iso).toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric" });
 
   const el = (tag, cls, text) => {
     const n = document.createElement(tag);
     if (cls) n.className = cls;
     if (text != null) n.textContent = text;
     return n;
-  };
-  const bi = (zh, en) => {
-    const frag = document.createDocumentFragment();
-    const a = el("span", null, zh); a.dataset.l = "zh";
-    const b = el("span", null, en); b.dataset.l = "en";
-    frag.append(a, b);
-    return frag;
   };
 
   function renderLog(releases) {
@@ -50,33 +16,28 @@
       const card = el("article", "entry" + (i >= 5 ? " extra" : ""));
       const head = el("header");
       head.append(el("h3", null, "v" + r.version));
-      const dates = document.createDocumentFragment();
-      for (const lang of ["zh", "en"]) {
-        const t = el("time"); t.dataset.l = lang; t.dataset.dl = lang; t.dataset.date = r.date;
-        dates.append(t);
-      }
-      head.append(dates);
+      const date = el("time", null, fmt(r.date));
+      date.dateTime = r.date;
+      head.append(date);
       card.append(head);
 
-      for (const lang of ["zh", "en"]) {
-        const ul = el("ul"); ul.dataset.l = lang;
-        (r.notes[lang] || []).forEach((t) => ul.append(el("li", null, t)));
-        card.append(ul);
-      }
+      const ul = el("ul");
+      (r.notes.zh || []).forEach((t) => ul.append(el("li", null, t)));
+      card.append(ul);
 
       const foot = el("footer");
-      const d = r.downloads;
-      const add = (url, zh, en) => {
-        if (!url) return;
-        const a = el("a", "dl-link"); a.href = url; a.append(bi(zh, en)); foot.append(a);
-      };
-      add(d.appleSilicon, "Apple 芯片 DMG", "Apple silicon DMG");
-      const gh = el("a", "dl-link quiet"); gh.href = r.url; gh.rel = "noopener"; gh.textContent = "GitHub";
+      if (r.downloads.appleSilicon) {
+        const download = el("a", "dl-link", "Apple 芯片 DMG");
+        download.href = r.downloads.appleSilicon;
+        foot.append(download);
+      }
+      const gh = el("a", "dl-link quiet", "GitHub");
+      gh.href = r.url;
+      gh.rel = "noopener";
       foot.append(gh);
       card.append(foot);
       log.append(card);
     });
-    renderDates();
 
     const more = document.getElementById("more");
     if (releases.length > 5) {
@@ -90,21 +51,24 @@
 
   function applyLatest(r) {
     document.querySelectorAll("[data-version]").forEach((n) => (n.textContent = "v" + r.version));
-    const d = r.downloads;
     document.querySelectorAll("[data-dl]").forEach((a) => {
-      const url = d[a.dataset.dl];
+      const url = r.downloads[a.dataset.dl];
       if (url) a.href = url;
     });
   }
 
-  setLang(initial);
   fetch("/data/releases.json")
-    .then((res) => res.json())
+    .then((res) => {
+      if (!res.ok) throw new Error("release data unavailable");
+      return res.json();
+    })
     .then((data) => {
       applyLatest(data.releases[0]);
       renderLog(data.releases);
     })
     .catch(() => {
-      document.getElementById("log").replaceChildren(el("p", "sub", "GitHub Releases"));
+      const link = el("a", "sub", "查看 GitHub 更新日志");
+      link.href = "https://github.com/vfasky/my-ai-audio/releases";
+      document.getElementById("log").replaceChildren(link);
     });
 })();

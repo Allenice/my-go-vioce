@@ -31,9 +31,6 @@ kbd {
 }
 ::selection { background: rgba(255, 106, 43, .35); }
 
-html[data-lang="zh"] [data-l="en"],
-html[data-lang="en"] [data-l="zh"] { display: none !important; }
-
 /* Dark background with faint glows */
 .bg { position: fixed; inset: 0; z-index: -1; overflow: hidden; background: radial-gradient(ellipse at 50% -10%, #17110e 0%, #050505 45%, #000 100%); }
 .orb { position: absolute; border-radius: 50%; filter: blur(110px); }
@@ -57,10 +54,6 @@ html[data-lang="en"] [data-l="zh"] { display: none !important; }
 .nav nav { display: flex; align-items: center; gap: 4px; }
 .nav nav a { color: var(--ink); font-size: 14px; padding: 6px 12px; border-radius: 999px; opacity: .85; }
 .nav nav a:hover { background: var(--glass-strong); text-decoration: none; opacity: 1; }
-.lang {
-  font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; margin-left: 6px;
-  padding: 6px 14px; border-radius: 999px; border: 0; color: #000; background: #f5f5f7;
-}
 
 /* Shared */
 main { max-width: 1080px; margin: 0 auto; padding: 0 20px; }

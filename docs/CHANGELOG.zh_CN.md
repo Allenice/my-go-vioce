@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- 准备发布 `go-voice` 0.3.0，包含 Omni Realtime WebSocket 听写、独立调试身份和 Bun watch 入口；同步更新网站的识别功能介绍与 0.3.0 下载链接，网站介绍及更新日志只展示中文。
+
 - 根目录新增 `package.json`，可用 `bun run dev` 启动既有的签名调试 watch 会话：Go 源码与配置变化后自动重构建并重启应用，Ctrl+C 停止会话，无需 JavaScript 依赖。
 
 - 为 `go-voice` 增加阿里云百炼 Omni Realtime WebSocket 听写，支持配置 WSS 端点与模型、按服务商和端点隔离钥匙串凭据、输入转写预览及松开按键后手动提交。只使用输入转写，不生成对话回答；测试连接只发送静音，失败时不切换引擎。
