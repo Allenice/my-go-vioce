@@ -33,7 +33,7 @@ Firmware validation requires an activated ESP-IDF 5.5.3 environment. GUI validat
 
 - [Third-party notices](THIRD_PARTY_NOTICES.md), [desktop dependency notices](../gui/docs/THIRD_PARTY_NOTICES.md), and [asset provenance](../assets/README.md): redistribution terms and reproduction steps. Independent authorization for the retained reference startup sound remains required before distribution.
 - [Changelog](CHANGELOG.md).
-- [Product website](../website/README.md): `go-voice.vfasky.com` introduction and download pages, deployed with the `cf` CLI.
+- [Product website](../website/README.md): `go-voice.yzsaas.net` introduction and download pages, deployed with the `cf` CLI.
 - [CI validation](development/ci/CI-validation.md) and [firmware releases](development/ci/CI-build-and-release.md).
 
 ## Contribute

@@ -2,7 +2,7 @@
 
 # go-voice 网站
 
-`go-voice` macOS 应用的介绍与下载网站：纯静态中文页面，部署在 Cloudflare Workers 静态资源上，域名 `go-voice.vfasky.com`。
+`go-voice` macOS 应用的介绍与下载网站：纯静态中文页面，部署在 Cloudflare Workers 静态资源上，域名 `go-voice.yzsaas.net`。
 
 - `public/`：站点文件。`img/app.webp` 是应用截图，`img/ai-passport.webp` 是 FoloToy AI Passport 硬件照片；图标由 `gui/resources/icon.png` 生成。
 - `public/data/releases.json`：由同步脚本生成并被 Git 忽略，不要手改。

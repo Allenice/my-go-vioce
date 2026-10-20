@@ -6,6 +6,6 @@ export default defineConfig({
     compatibilityDate: "2026-10-01",
     observability: { enabled: true },
     assets: { htmlHandling: "auto-trailing-slash", notFoundHandling: "404-page" },
-    domains: ["go-voice.vfasky.com"],
+    domains: ["go-voice.yzsaas.net"],
   },
 });

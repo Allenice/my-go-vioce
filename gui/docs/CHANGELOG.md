@@ -11,7 +11,7 @@ Each `## <version>` section is the release note of one signed `go-voice` release
 - Choose Alibaba Cloud Omni Realtime WebSocket on the Speech Recognition page. Set its endpoint, model and API key; audio streams while recording and is submitted on key release. Only input transcription is inserted, with credentials stored separately from Alipay MaaS.
 - Local builds are named `go-voice-debug` and use separate macOS permission identities for the main app and all helpers, so development builds do not replace the release app's permission records.
 - Start a signed watch session with `bun run dev` from the repository root. Go source and configuration changes rebuild and restart the debug app automatically.
-- Visit the [product website](https://go-voice.vfasky.com/) for the latest Apple Silicon download, setup information and release history.
+- Visit the [product website](https://go-voice.yzsaas.net/) for the latest Apple Silicon download, setup information and release history.
 
 Install the Apple Silicon DMG on macOS 26 or later, or choose Check for Updates… in an installed release. Select Alibaba Cloud Omni Realtime on the Speech Recognition page and enter an API key for the chosen endpoint and model. Build and setup instructions are in the [application guide](https://github.com/vfasky/my-ai-audio/blob/go-voice-v0.3.0/gui/README.md). Live Omni recognition, physical-device dictation and permission retention across an installed update remain unverified.
 

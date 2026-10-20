@@ -11,7 +11,7 @@
 - “语音识别”页新增阿里云百炼 Omni Realtime WebSocket，可填写端点、模型与 API key；录音时实时上传，松开按键后提交，只插入输入语音的转写结果，凭据与支付宝 MaaS 分开保存。
 - 本地构建命名为 `go-voice-debug`，主应用和所有 helper 使用独立的 macOS 权限身份，避免开发版覆盖正式版的权限记录。
 - 在仓库根目录使用 `bun run dev` 启动带签名的 watch 调试会话；Go 源码与配置变化后自动重构建并重启调试应用。
-- [产品网站](https://go-voice.vfasky.com/)提供最新 Apple 芯片版下载、使用说明及历史更新日志。
+- [产品网站](https://go-voice.yzsaas.net/)提供最新 Apple 芯片版下载、使用说明及历史更新日志。
 
 在 macOS 26 及以上系统安装 Apple 芯片版 DMG，或在已安装的正式版中选择“检查更新…”。在“语音识别”页选择阿里云百炼 Omni Realtime，填写与端点和模型匹配的 API key。构建与配置步骤见[应用指南](https://github.com/vfasky/my-ai-audio/blob/go-voice-v0.3.0/gui/README.zh_CN.md)。真实 Omni 识别、设备听写及已安装应用升级后的授权保留仍待验证。
 

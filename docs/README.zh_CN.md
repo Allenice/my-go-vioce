@@ -33,7 +33,7 @@ Go Voice 由 AI Passport 固件和基于 MyGo 的 macOS 语音输入应用组成
 
 - [第三方声明](THIRD_PARTY_NOTICES.zh_CN.md)、[桌面端依赖声明](../gui/docs/THIRD_PARTY_NOTICES.zh_CN.md)和[资源来源](../assets/README.zh_CN.md)：再分发条款及资源复现方法。分发前仍须取得所保留参考开机音的独立授权。
 - [变更记录](CHANGELOG.zh_CN.md)。
-- [产品网站](../website/README.zh_CN.md)：`go-voice.vfasky.com` 介绍与下载页面，使用 `cf` CLI 部署。
+- [产品网站](../website/README.zh_CN.md)：`go-voice.yzsaas.net` 介绍与下载页面，使用 `cf` CLI 部署。
 - [CI 验证](development/ci/CI-validation.zh_CN.md)与[固件发布](development/ci/CI-build-and-release.zh_CN.md)。
 
 ## 参与贡献

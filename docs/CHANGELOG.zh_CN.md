@@ -13,7 +13,7 @@
 - 为 `go-voice` 增加阿里云百炼 Omni Realtime WebSocket 听写，支持配置 WSS 端点与模型、按服务商和端点隔离钥匙串凭据、输入转写预览及松开按键后手动提交。只使用输入转写，不生成对话回答；测试连接只发送静音，失败时不切换引擎。
 - 本地 macOS 构建改为 `go-voice-debug.app`，主应用标识为 `yz.sh.mygo-go-voice.debug`，三个原生 helper 的标识也增加 `.debug`。调试版使用独立的临时配置且不启用更新，保留正式版身份并分离 macOS 权限记录。跨次构建保留调试版权限仍需稳定的签名证书。
 
-- 新增 `go-voice` 产品网站 `go-voice.vfasky.com`（`website/`）：以黑色为主的中英双语页面，介绍应用与 FoloToy AI Passport 硬件，并根据已发布的 release 提供最新 Apple 芯片 DMG 下载与更新日志。使用 `cf` CLI 部署到 Cloudflare Workers。
+- 新增 `go-voice` 产品网站 `go-voice.yzsaas.net`（`website/`）：以黑色为主的中英双语页面，介绍应用与 FoloToy AI Passport 硬件，并根据已发布的 release 提供最新 Apple 芯片 DMG 下载与更新日志。使用 `cf` CLI 部署到 Cloudflare Workers。
 
 - `go-voice` 词库新增可选的 Jev 同音词判断（新“Jev 判断”标签页，默认关闭）：对读音像中文词条的每处片段，由 TypeSafe 的 Jev 给出“说的就是这个词”的概率；可能性高的由代码直接替换，可能性低的保留原文并要求 AI 润色不要改，只有拿不准的才交给 AI 润色。支持 TypeSafe 官方及任何兼容其 System One 接口的服务（如支付宝 MaaS 的 `jev-1.13`），可填写接口地址和模型。会把命中的片段及前后文、命中的词条发送到所选服务，不发送音频；超过 4 秒或失败时跳过。API key 按接口地址分别存入钥匙串，“测试连接”用固定示例句展示 Jev 的判断。
 
