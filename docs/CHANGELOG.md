@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- Prepare `go-voice` 0.4.0 with firmware version reminders, local word-boundary vocabulary correction, improved Jev checks and lower standby draw; refresh the website copy and 0.4.0 download links.
+
 - Show the device and bundled firmware versions on the firmware page, with an update reminder and a sidebar badge when the connected device is older than the copy packaged in go-voice. Device firmware is now 0.2.0 so that reminder can distinguish this standby-power build from 0.1.0.
 
 - Extend gojieba to the `go-voice` vocabulary and replacement pipeline. Unique replacement targets fill unused Top 100 contextual slots after ranked terms; the active Chinese words customize the local dictionary for Jev and ordinary refinement. Refine with word-boundary hints even when Jev is off, and protect correctly spelled longer terms. Final correction also matches explicitly configured Chinese sources split by horizontal whitespace, using complete dictionary tokens without crossing punctuation or line breaks. This local correction works with both AI refinement and Jev off; live previews keep literal replacement behavior. Dictionary changes and final correction run on workers with copied vocabulary data.

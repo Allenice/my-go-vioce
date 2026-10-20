@@ -6,6 +6,15 @@
 
 Each `## <version>` section is the release note of one signed `go-voice` release. `scripts/release.sh` requires the section in both language files; the Simplified Chinese section is signed into the update manifest and shown in the in-app update window, because the app interface is Chinese. Write user-visible changes only and keep both sections aligned. See [updates and releases](updates.md).
 
+## 0.4.0
+
+- Show the device and bundled firmware versions on the Firmware page, with an update reminder and a sidebar badge when the connected device is older than the copy packaged in go-voice. Bundled firmware is 0.2.0.
+- Correct Chinese vocabulary and replacements on local word boundaries. Unique replacement targets fill unused Top 100 slots; final correction matches configured Chinese sources as complete tokens without crossing punctuation, including when AI refinement and Jev are off. Live previews keep literal replacement.
+- Improve Jev vocabulary checks with local segmentation and the full transcript. Each occurrence compares overlapping homophone candidates against keeping the original; a replacement or protection applies only at 70% confidence. Requests send the full transcript, segmentation and matching candidates, never audio or unrelated vocabulary. Long requests are skipped. Live model quality remains unverified.
+- Lower firmware standby draw: key scanning slows while the screen is off, the microphone path closes after five quiet seconds, and the display sleeps with the backlight. The first key after screen-off can take about 50 ms longer.
+
+Install the Apple Silicon DMG on macOS 26 or later, or choose Check for Updates… in an installed release. After connecting a badge, compare versions on the Firmware page and install 0.2.0 when prompted. Build and setup instructions are in the [application guide](https://github.com/vfasky/my-ai-audio/blob/go-voice-v0.4.0/gui/README.md). Live Jev quality, word-boundary correction on real dictation, measured standby current and a physical firmware update remain unverified.
+
 ## 0.3.0
 
 - Choose Alibaba Cloud Omni Realtime WebSocket on the Speech Recognition page. Set its endpoint, model and API key; audio streams while recording and is submitted on key release. Only input transcription is inserted, with credentials stored separately from Alipay MaaS.
