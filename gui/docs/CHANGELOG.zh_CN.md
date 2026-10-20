@@ -6,6 +6,15 @@
 
 每个 `## <版本>` 小节是一次已签名 `go-voice` 发布的说明。`scripts/release.sh` 要求两个语言文件都有该小节；应用界面为中文，因此简体中文小节会签入更新 manifest，并显示在应用内更新窗口。只写用户可感知的变化，两种语言保持一致。参见[更新与发布](updates.zh_CN.md)。
 
+## 0.2.0
+
+- 新增“语音识别”页面，可选在线识别：支付宝百灵 MaaS 的 Fun-ASR、Paraformer v2 边说边返回文字，Qwen3-ASR-Flash 在松开按键后识别整段录音。默认仍使用 Apple 本地识别。在线识别会将本次语音发送至支付宝百灵 MaaS，API 密钥保存在钥匙串中，失败时说明原因，不切换引擎。
+- 悬浮胶囊实时显示识别文字，新文字从右侧滑入，Apple 本地识别现在约每秒更新一次。预览气泡在 AI 润色时出现，方便直接插入识别原文。
+- 词库页面可选启用 Jev，在润色前判断中文同音词纠正，关闭 AI 润色时也可生效。支持 TypeSafe 和支付宝百灵 MaaS 等兼容 System One 的服务。只发送匹配片段、周边上下文和候选词条，API 密钥保存在钥匙串中。默认关闭，超过四秒或失败时跳过。
+- 新增“通用”页面的“登录时启动”开关。登录后 go-voice 常驻菜单栏，仅在缺少必需权限时打开权限引导；开关同步 macOS 登录项设置。
+
+在 macOS 26 及以上系统安装 Apple 芯片版 DMG，或在已安装的正式版中选择“检查更新…”。配置步骤见[应用指南](https://github.com/vfasky/my-ai-audio/blob/go-voice-v0.2.0/gui/README.zh_CN.md)，构建与签名方法见[发布指南](https://github.com/vfasky/my-ai-audio/blob/go-voice-v0.2.0/gui/docs/updates.zh_CN.md)。本版本尚未验证实机听写、真实在线服务的识别质量、登录项行为及已安装应用的更新流程。
+
 ## 0.1.0
 
 - go-voice 首个签名并公证的版本，适用于 macOS 26 及以上的 Apple 芯片 Mac。

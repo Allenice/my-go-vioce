@@ -6,6 +6,15 @@
 
 Each `## <version>` section is the release note of one signed `go-voice` release. `scripts/release.sh` requires the section in both language files; the Simplified Chinese section is signed into the update manifest and shown in the in-app update window, because the app interface is Chinese. Write user-visible changes only and keep both sections aligned. See [updates and releases](updates.md).
 
+## 0.2.0
+
+- Choose online speech recognition on the new Speech Recognition page: Alipay MaaS Fun-ASR and Paraformer v2 stream text while you speak; Qwen3-ASR-Flash transcribes the complete recording after you release the key. Apple on-device recognition remains the default. Online recognition sends session audio to Alipay MaaS, keeps its API key in Keychain, and reports failures without switching engines.
+- See live recognition in the floating capsule: new words slide in from the right, and Apple's local recognizer now updates about once a second. The preview bubble appears during AI refinement so you can insert the ASR original directly.
+- Optionally enable Jev on the vocabulary page to check Chinese homophone corrections before refinement, including when AI refinement is off. Supports TypeSafe and compatible System One providers such as Alipay MaaS. Only matching text spans, surrounding context and candidate terms are sent; API keys stay in Keychain. The check is off by default and is skipped after four seconds or on failure.
+- Enable Open at Login on the new General page. go-voice starts in the menu bar and opens the permissions guide only when a required permission is missing; the switch follows macOS Login Items settings.
+
+Install the Apple Silicon DMG on macOS 26 or later, or choose Check for Updates… in an installed release. See the [application guide](https://github.com/vfasky/my-ai-audio/blob/go-voice-v0.2.0/gui/README.md) for setup and the [release guide](https://github.com/vfasky/my-ai-audio/blob/go-voice-v0.2.0/gui/docs/updates.md) for building and signing. Physical-device dictation, live provider quality, login-item behavior and an installed update remain unverified for this release.
+
 ## 0.1.0
 
 - First signed and notarized release of go-voice for Apple Silicon Macs running macOS 26 or later.
