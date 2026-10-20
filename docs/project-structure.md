@@ -8,7 +8,7 @@ The repository root builds ESP-IDF firmware for AI Passport. `gui/` is an indepe
 main/                         Firmware application, BLE audio, buttons and status UI
 components/bsp/               Reusable board drivers and public hardware interfaces
 bootloader_components/        Permanent-Recovery bootloader hook
-assets/                       Brand artwork, firmware images, fonts and startup sound
+assets/                       Brand artwork, firmware images and startup sound
 sdkconfig.defaults            ESP32-C3, Bluetooth and power defaults
 partitions.csv                Application and protected identity/Recovery layout
 dependencies.lock             Pinned ESP-IDF managed components

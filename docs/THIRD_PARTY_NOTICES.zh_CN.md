@@ -21,7 +21,7 @@ ESP-IDF Managed Component 的版本锁定在 [`dependencies.lock`](../dependenci
 
 Vokie 名称与图形标识不是第三方软件依赖，也不在 MIT 授权范围内；其独立再分发条款见 [`LICENSES/Vokie-Brand-Asset.txt`](../LICENSES/Vokie-Brand-Asset.txt)。
 
-上游 Barlow Condensed Bold 子集保留为参考源码，版权归 2017 The Barlow Project Authors 所有，按 SIL Open Font License 1.1 分发，保留[完整字体许可](../LICENSES/Barlow-OFL.txt)。Go Voice 使用已启用的 LVGL Montserrat 20 字体，不再编译旧标题子集。见[资源目录](../assets/README.zh_CN.md#vokie-标题字体)。
+未使用的上游 Barlow Condensed Bold 源字库与子集已移除，继续保留 Copyright 2017 The Barlow Project Authors 的历史[字体许可](../LICENSES/Barlow-OFL.txt)以记录来源。Go Voice 使用 LVGL Montserrat 20。见[资源目录](../assets/README.zh_CN.md#历史-vokie-标题字体)。
 
 Go Voice 导入 Vokie 固件提交 `ce26ea043251102155e54bc9503eb8133d5cafa8`，完整保留 FoloToy MIT 归属；其专有图形已从固件运行时资产移除。Go Voice PNG 是用户提供的自有图形，不是 Vokie 标志改色版本；本声明不授予独立的商标或图形权利。
 

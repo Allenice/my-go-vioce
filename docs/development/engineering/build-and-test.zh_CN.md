@@ -35,9 +35,8 @@ target 或已跟踪 defaults 时，先保留有意的本地设置，再运行
 
 ```bash
 cc -std=c11 -Wall -Wextra -Werror -Imain \
-  tests/test_ui_pixel_math.c main/ui_pixel_math.c \
-  -o /tmp/test_ui_pixel_math
-/tmp/test_ui_pixel_math
+  tests/test_button_gesture.c -o /tmp/test_button_gesture
+/tmp/test_button_gesture
 ```
 
 统一验证入口：

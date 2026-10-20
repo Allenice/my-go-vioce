@@ -230,7 +230,7 @@ The actual port may differ. Check the cable, enumeration, permissions, power, an
 
 ## 13. Build and device validation
 
-Run `./tools/validate.sh` for the complete automated gate. A successful build is the minimum automated result, not physical-device acceptance.
+Run `./tools/validate.sh` for the complete automated gate, including host tests and build checks. A successful build is not physical-device acceptance; hardware changes require device validation.
 
 General board acceptance for this firmware:
 

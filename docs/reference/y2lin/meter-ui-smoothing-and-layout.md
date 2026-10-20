@@ -80,7 +80,9 @@ field diagnosis is possible.
 - On a white screen, suspect a NULL-object crash with the backlight on before
   suspecting the display driver; check the LVGL allocator budget.
 
-## Related documents
+## Historical source references
+
+These paths refer to the upstream sound-meter example, not the current Go Voice source tree. The old demo and pixel UI helpers have been removed from this repository; the implementation lessons above remain useful.
 
 - `docs/CHANGELOG.md` — the Unreleased entries for the meter UI and the
   sound-meter application.

@@ -64,7 +64,9 @@ esp_timer 任务双双吃紧，8192 很宽裕。进入页面时记录构建后�
 - 白屏先怀疑“背光已亮的 NULL 对象崩溃”，再怀疑显示驱动；查 LVGL 分配器
   预算。
 
-## 相关文档
+## 历史源码参考
+
+以下路径指向上游噪音计示例，不代表当前 Go Voice 源码树。旧 demo 和像素 UI 辅助代码已从本仓库移除，上述实现经验仍可参考。
 
 - `docs/CHANGELOG.zh_CN.md` — 计量页 UI 与噪音计应用的 Unreleased 条目。
 - `main/demo_sound_meter.c` 与 `main/sound_meter_model.c` — 页面及其可

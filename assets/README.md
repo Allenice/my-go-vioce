@@ -41,6 +41,12 @@ Store reusable font files and generated font sources in `fonts/`.
 - Check Flash and internal-RAM impact before adding a font; the ESP32-C3 has no PSRAM.
 - Do not commit fonts whose license does not permit redistribution.
 
+## Hardware purchase image
+
+- Source: the user-provided FoloToy WeChat Shop product-sharing image, retained as [images/ai-passport-purchase.jpg](images/ai-passport-purchase.jpg) (1020 x 2208 JPEG).
+- Website copy: `website/public/img/ai-passport-purchase.jpg`, copied byte-for-byte to preserve the complete mini-program code. The hardware purchase section links to the full-size image and the [official product introduction](https://ai-passport.folotoy.cn/).
+- The image is supplied for this website; no independent redistribution license is asserted. Its price and promotions are a snapshot, not a live quotation; the website directs visitors to the shop for current terms.
+
 ## Images
 
 Store reusable source images and generated display assets in `images/`.
@@ -59,20 +65,6 @@ Store reusable music and sound-effect sources in `music/`.
 - Check Flash and internal-RAM cost before embedding audio; stream or chunk long recordings.
 - Do not commit media without redistribution permission.
 
-## Vokie title font
+## Historical Vokie title font
 
-- Source: [Barlow Condensed Bold](https://github.com/google/fonts/blob/60824dce48f7dd28fe7d65559f2da1f6e04e585b/ofl/barlowcondensed/BarlowCondensed-Bold.ttf), pinned to Google Fonts commit `60824dce48f7dd28fe7d65559f2da1f6e04e585b`.
-- Author/license: Copyright 2017 The Barlow Project Authors; SIL Open Font License 1.1, retained in [Barlow-OFL.txt](../LICENSES/Barlow-OFL.txt).
-- Files: [source TTF](fonts/BarlowCondensed-Bold.ttf), [generated LVGL font](fonts/vokie_title_barlow_condensed_bold_22.c), and [declaration](fonts/vokie_title_font.h).
-- Only the characters in `Vokie Power` are included: space, `P`, `V`, `e`, `i`, `k`, `o`, `r`, and `w`. A title change that needs other characters must regenerate this subset.
-- Integration: retained as upstream reference only; `main/CMakeLists.txt` no longer compiles this subset. Go Voice uses LVGL Montserrat 20. Neither the TTF nor this generated subset is embedded in Go Voice firmware.
-
-Regenerate from the repository root with `lv_font_conv` version 1.5.3:
-
-```bash
-lv_font_conv --size 22 --bpp 4 --format lvgl \
-  --font assets/fonts/BarlowCondensed-Bold.ttf --symbols 'Vokie Power' \
-  --no-compress --no-prefilter --lv-include lvgl.h \
-  --lv-font-name vokie_title_barlow_condensed_bold_22 \
-  -o assets/fonts/vokie_title_barlow_condensed_bold_22.c
-```
+The unused Barlow Condensed Bold source and generated LVGL subset have been removed. Go Voice uses LVGL Montserrat 20. The historical [Barlow OFL notice](../LICENSES/Barlow-OFL.txt) is retained for attribution.

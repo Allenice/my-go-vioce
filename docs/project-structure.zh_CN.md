@@ -8,7 +8,7 @@
 main/                         固件应用、BLE 音频、按键与状态界面
 components/bsp/               可复用板级驱动与公开硬件接口
 bootloader_components/        永久 Recovery 的 bootloader hook
-assets/                       品牌图稿、固件图片、字体与开机音
+assets/                       品牌图稿、固件图片与开机音
 sdkconfig.defaults            ESP32-C3、蓝牙与功耗默认配置
 partitions.csv                应用、设备身份与 Recovery 保护布局
 dependencies.lock             固定 ESP-IDF managed components 版本

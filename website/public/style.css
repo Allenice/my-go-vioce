@@ -118,6 +118,18 @@ h2 { font-size: clamp(28px, 4vw, 42px); }
 .keys kbd { min-width: 60px; text-align: center; }
 .split .note { font-size: 14px; padding: 14px 16px; border-radius: 16px; background: var(--glass); border: 1px solid var(--line); }
 
+/* Hardware purchase */
+.hardware-purchase { display: grid; grid-template-columns: minmax(0, 380px) minmax(0, 1fr); align-items: center; gap: 48px; text-align: left; }
+.purchase-copy h2 { margin: 18px 0; }
+.purchase-copy p { color: var(--muted); font-size: 17px; }
+.purchase-copy .cta { justify-content: flex-start; }
+.purchase-copy .purchase-hint { font-size: 13px; margin-top: 20px; }
+.purchase-poster { width: 100%; max-width: 380px; margin: 0 auto; }
+.purchase-poster a { display: block; border-radius: 18px; overflow: hidden; border: 1px solid var(--line); }
+.purchase-poster img { width: 100%; height: auto; }
+.purchase-poster figcaption { margin-top: 12px; color: var(--muted); text-align: center; font-size: 12px; }
+.hardware-purchase a:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
+
 /* Steps */
 .steps { list-style: none; margin: 36px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; text-align: left; }
 .steps li { padding: 26px; border-radius: var(--radius); background: var(--glass); border: 1px solid var(--line); }
@@ -184,6 +196,8 @@ h2 { font-size: clamp(28px, 4vw, 42px); }
   .grid { grid-template-columns: repeat(2, 1fr); }
   .steps { grid-template-columns: 1fr; }
   .split { grid-template-columns: 1fr; gap: 36px; text-align: center; }
+  .hardware-purchase { grid-template-columns: minmax(0, 1fr); gap: 32px; text-align: center; }
+  .purchase-copy .cta { justify-content: center; }
   .keys { justify-items: center; }
   .nav nav a:not(.keep) { display: none; }
 }

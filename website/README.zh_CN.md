@@ -5,6 +5,7 @@
 `go-voice` macOS 应用的介绍与下载网站：纯静态中文页面，部署在 Cloudflare Workers 静态资源上，域名 `go-voice.yzsaas.net`。
 
 - `public/`：站点文件。`img/app.webp` 是应用截图，`img/ai-passport.webp` 是 FoloToy AI Passport 硬件照片；图标由 `gui/resources/icon.png` 生成。
+- `public/img/ai-passport-purchase.jpg`：由 `assets/images/ai-passport-purchase.jpg` 原样复制的完整购买图片，保留微信小程序码。购买区链接至大图和 https://ai-passport.folotoy.cn/，价格以店铺实时页面为准。
 - `public/data/releases.json`：由同步脚本生成并被 Git 忽略，不要手改。
 - `scripts/sync-releases.mjs`：读取 `vfasky/my-ai-audio` 已发布的 `go-voice-v*` GitHub release，获取 DMG 与 `SHA256SUMS.txt` 链接；更新说明取自 [gui/docs/CHANGELOG.zh_CN.md](../gui/docs/CHANGELOG.zh_CN.md) 中对应的 `## <版本>` 小节。网站只展示中文，GitHub 发布文档沿用原有语言规则。设置 `GITHUB_TOKEN` 可避免 API 限流。
 - `cloudflare.config.ts`：Worker 名称、静态资源处理方式和自定义域名，由 `cf` CLI 部署。

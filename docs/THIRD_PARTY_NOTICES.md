@@ -32,7 +32,7 @@ The Vokie name and symbol are not third-party software dependencies and are not
 covered by MIT. Their separate redistribution terms are in
 [`LICENSES/Vokie-Brand-Asset.txt`](../LICENSES/Vokie-Brand-Asset.txt).
 
-The upstream Barlow Condensed Bold subset is retained as reference source, Copyright 2017 The Barlow Project Authors, under the SIL Open Font License 1.1. Preserve [the complete font license](../LICENSES/Barlow-OFL.txt). Go Voice uses the already-enabled LVGL Montserrat 20 font; the old title subset is not compiled. See [Assets](../assets/README.md#vokie-title-font).
+The unused upstream Barlow Condensed Bold font source and subset have been removed. The historical [font license](../LICENSES/Barlow-OFL.txt), Copyright 2017 The Barlow Project Authors, is retained for attribution. Go Voice uses LVGL Montserrat 20. See [Assets](../assets/README.md#historical-vokie-title-font).
 
 Go Voice imports the Vokie firmware at commit `ce26ea043251102155e54bc9503eb8133d5cafa8`; the FoloToy MIT attribution remains intact. Its proprietary symbol is removed from the firmware runtime assets. The Go Voice PNG is user-provided artwork, not a recolored Vokie symbol; this notice grants no independent trademark or artwork rights.
 

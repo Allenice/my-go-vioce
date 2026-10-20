@@ -402,7 +402,7 @@ idf.py flash monitor
 
 配置陈旧时可执行 `idf.py fullclean`，但这会删除生成的 build 状态；不要用它处理源码工作区问题。
 
-仓库有 `tests/test_ui_pixel_math.c` 轻量逻辑测试源，但当前根 CMake 是 ESP-IDF 工程，未提供统一的 host test 命令。因此 `idf.py build` 是最低自动检查，硬件变更必须上板。
+运行 `./tools/validate.sh` 执行完整自动验证，包括 host tests 和构建检查。构建成功不代表物理设备验收通过；硬件变更必须上板验证。
 
 ### 通用上板验收
 

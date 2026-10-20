@@ -39,6 +39,12 @@ ffmpeg -nostdin -i assets/music/vokie-boot-v2-blip-octave-tail.wav \
 - 添加字库前评估 Flash 与内部 RAM 影响；ESP32-C3 无 PSRAM。
 - 不提交许可不允许分发的字库。
 
+## 硬件购买图片
+
+- 来源：用户提供的 FoloToy 微信小店商品分享图，原图保留为 [images/ai-passport-purchase.jpg](images/ai-passport-purchase.jpg)（1020 × 2208 JPEG）。
+- 网站副本：`website/public/img/ai-passport-purchase.jpg`，逐字节复制，保留完整小程序码。硬件购买区链接至完整大图和[官方产品介绍](https://ai-passport.folotoy.cn/)。
+- 图片由用户提供用于本网站，本说明不主张独立再分发授权。图中价格和优惠是截图信息，并非实时报价；网站引导用户以店铺实时信息为准。
+
 ## 图片（images）
 
 可复用的源图与生成的显示资产放在 `images/`。
@@ -57,20 +63,6 @@ ffmpeg -nostdin -i assets/music/vokie-boot-v2-blip-octave-tail.wav \
 - 嵌入音频前评估 Flash 与内部 RAM 成本；长录音应流式或分块。
 - 无再分发许可不提交媒体文件。
 
-## Vokie 标题字体
+## 历史 Vokie 标题字体
 
-- 来源：[Barlow Condensed Bold](https://github.com/google/fonts/blob/60824dce48f7dd28fe7d65559f2da1f6e04e585b/ofl/barlowcondensed/BarlowCondensed-Bold.ttf)，固定到 Google Fonts 提交 `60824dce48f7dd28fe7d65559f2da1f6e04e585b`。
-- 作者与许可：Copyright 2017 The Barlow Project Authors；SIL Open Font License 1.1，完整许可保留在 [Barlow-OFL.txt](../LICENSES/Barlow-OFL.txt)。
-- 文件：[源 TTF](fonts/BarlowCondensed-Bold.ttf)、[生成的 LVGL 字体](fonts/vokie_title_barlow_condensed_bold_22.c) 与[声明](fonts/vokie_title_font.h)。
-- 仅包含 `Vokie Power` 所用字符：空格、`P`、`V`、`e`、`i`、`k`、`o`、`r`、`w`。标题若需要其他字符，须重新生成子集。
-- 集成：仅保留为上游参考，`main/CMakeLists.txt` 不再编译该子集。Go Voice 使用 LVGL Montserrat 20，TTF 及该生成子集均不嵌入 Go Voice 固件。
-
-在仓库根目录使用 `lv_font_conv` 1.5.3 重新生成：
-
-```bash
-lv_font_conv --size 22 --bpp 4 --format lvgl \
-  --font assets/fonts/BarlowCondensed-Bold.ttf --symbols 'Vokie Power' \
-  --no-compress --no-prefilter --lv-include lvgl.h \
-  --lv-font-name vokie_title_barlow_condensed_bold_22 \
-  -o assets/fonts/vokie_title_barlow_condensed_bold_22.c
-```
+未使用的 Barlow Condensed Bold 源字库与生成的 LVGL 子集已移除。Go Voice 使用 LVGL Montserrat 20，继续保留历史 [Barlow OFL 声明](../LICENSES/Barlow-OFL.txt)以记录来源。

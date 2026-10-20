@@ -44,7 +44,7 @@
           <svg viewBox="0 0 24 24"><path d="M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg>
           下载 Apple 芯片版
         </a>
-        <a class="btn" href="#hardware">了解硬件</a>
+        <a class="btn" href="#buy-hardware">购买硬件</a>
       </div>
       <p class="meta"><span data-version>v0.3.0</span> · macOS 26+ · 需要 FoloToy AI Passport</p>
       <div class="shot hero-shot">
@@ -66,6 +66,29 @@
           <li><kbd>OK</kbd><span>删除或取消，长按清空</span></li>
         </ul>
         <p class="note">工牌需运行 Go Voice 固件，可在 go-voice 的“固件安装”页通过 USB 写入，设备身份与永久 Recovery 保持不变。</p>
+      </div>
+    </section>
+
+    <section class="section" id="buy-hardware" aria-labelledby="purchase-title">
+      <div class="panel hardware-purchase">
+        <figure class="purchase-poster">
+          <a href="/img/ai-passport-purchase.jpg" target="_blank" rel="noopener noreferrer" aria-label="打开 FoloToy AI Passport 购买图片大图，查看微信小程序码">
+            <img src="/img/ai-passport-purchase.jpg" width="1020" height="2208" alt="FoloToy AI Passport 微信小店商品分享图，包含硬件介绍、价格和购买小程序码" loading="lazy">
+          </a>
+          <figcaption>微信扫码查看商品 · 点击图片放大</figcaption>
+        </figure>
+        <div class="purchase-copy">
+          <span class="pill">硬件介绍与购买</span>
+          <h2 id="purchase-title">还没有 AI Passport？</h2>
+          <p>FoloToy AI Passport 是一款开放式可穿戴 AI 设备。出厂可展示个人身份卡，也能安装社区提供的社交、游戏和效率工具等玩法。</p>
+          <p>搭配 Go Voice 固件，它就是你的随身语音输入设备，通过蓝牙连接 Mac，配合 go-voice 完成识别、润色与插字。</p>
+          <div class="cta">
+            <a class="btn primary" href="https://ai-passport.folotoy.cn/" target="_blank" rel="noopener noreferrer">官方介绍与购买 ↗</a>
+            <a class="btn" href="/img/ai-passport-purchase.jpg" target="_blank" rel="noopener noreferrer">查看购买大图 ↗</a>
+          </div>
+          <p class="purchase-hint">用微信扫描图中的小程序码，或保存图片后在微信中识别，查看商品与购买信息。图片中的价格和优惠以店铺实时页面为准。</p>
+          <p class="purchase-hint">官网展示原厂与社区玩法；使用 go-voice 需安装 Go Voice 固件，切换固件会替换设备当前玩法。</p>
+        </div>
       </div>
     </section>
 
@@ -157,6 +180,7 @@
           </a>
         </div>
         <p class="hint">将 go-voice 拖入“应用程序”，打开后按权限引导授予蓝牙、语音识别和辅助功能，再选择你的 FoloToy AI Passport。</p>
+        <p class="hint">还没有硬件？<a href="#buy-hardware">查看 AI Passport 介绍与购买方式 →</a></p>
         <p class="hint">
           <a data-dl="checksums" href="https://github.com/vfasky/my-ai-audio/releases/download/go-voice-v0.3.0/SHA256SUMS.txt">SHA256 校验文件</a> ·
           <a href="https://github.com/vfasky/my-ai-audio/releases" rel="noopener">全部版本</a> ·
