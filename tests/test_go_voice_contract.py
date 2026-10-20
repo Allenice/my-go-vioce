@@ -15,8 +15,6 @@ class GoVoiceContractTests(unittest.TestCase):
         consumers = [ROOT / path for path in (
             'docs/ai-passport-ble-protocol.md',
             'docs/ai-passport-ble-protocol.zh_CN.md',
-            'vokie-plugin/worker/protocol.mjs',
-            'vokie-plugin/helper/AiPassportHelper.swift',
             'gui/internal/protocol/control.go',
             'gui/macos/BridgeCore/VoiceContract.swift',
         )]

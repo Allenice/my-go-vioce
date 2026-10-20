@@ -6,7 +6,7 @@ MyGo 是独立实现的 Go Voice 桌面宿主。Go Voice 图稿来自 `assets/br
 
 | 来源 | 用途 | 许可证 / 声明 |
 | --- | --- | --- |
-| FoloToy AI Passport 及已导入的 Vokie 参考版本 `ce26ea043251102155e54bc9503eb8133d5cafa8` | Bluetooth helper 改编自 `vokie-plugin/helper/AiPassportHelper.swift`；ADPCM 与会话行为参考其 worker 移植 | MIT，Copyright (c) 2026 FoloToy；完整声明见 `licenses/FoloToy-MIT.txt` |
+| FoloToy AI Passport 及已导入的 Vokie 参考版本 `ce26ea043251102155e54bc9503eb8133d5cafa8` | Bluetooth helper 改编自上游 Vokie 插件的 `AiPassportHelper.swift`；ADPCM 与会话行为参考其 worker 移植。本仓库不再附带独立插件 | MIT，Copyright (c) 2026 FoloToy；完整声明见 `licenses/FoloToy-MIT.txt` |
 | MyGo v0.5.5 | 原生应用、控件、打包 | MIT，Copyright (c) 2026 MyGo contributors；`licenses/MyGo-MIT.txt` |
 | purego v0.11.1 | Security / CoreFoundation 绑定和 MyGo 依赖 | Apache-2.0；`licenses/purego-Apache-2.0.txt` |
 | go-text/typesetting v0.3.5 | MyGo 文本排版依赖 | 原始 LICENSE 和 HarfBuzz 声明保留在 `licenses/` |

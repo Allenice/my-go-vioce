@@ -21,7 +21,7 @@
 
 UP 切换采集，DOWN 发送回车，OK 删除或取消，长按清空或取消。音频采用独立 20 ms / 320 样本 IMA-ADPCM 帧、166 编码字节和不小于 185 的 ATT MTU。15,000 帧、五分钟的会话上限由 Mac 执行。[待机契约](development/engineering/standby-power-contract.zh_CN.md)定义音频/显示暂停、背光与 USB 功耗行为。
 
-`vokie-plugin/` 是导入的参考代码，不参与 Go Voice 桌面端运行；其源码 UUID 已同步，但归档内预编译 helper 仍保留上游 UUID，不属于 Go Voice 交付物。桌面应用自行构建原生 helper。使用旧服务 UUID 的未修改 Vokie 客户端无法连接。
+本仓库不再包含独立 Vokie 插件。桌面应用自行构建原生 helper，并继续保留上游归属和 MIT 声明。使用旧服务 UUID 的未修改 Vokie 客户端无法连接。
 
 ## 显示与资源
 

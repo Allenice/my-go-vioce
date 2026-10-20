@@ -21,7 +21,7 @@ Advertising, title, readiness and waiting messages use `Go Voice`. `hello.device
 
 UP toggles capture; DOWN sends Enter; OK deletes or cancels, with long-press clear/cancel. Audio uses independent 20 ms / 320-sample IMA-ADPCM frames, 166 encoded bytes, and ATT MTU 185 or greater. The Mac enforces the 15,000-frame/five-minute session bound. The [standby contract](development/engineering/standby-power-contract.md) defines audio/display pause, brightness and USB power behavior.
 
-`vokie-plugin/` is imported reference code outside the Go Voice desktop runtime. Its source UUIDs are synchronized, but its archived prebuilt helper retains upstream UUIDs and is not a Go Voice deliverable. The desktop app builds its own native helpers. Unmodified Vokie clients using the old service UUID cannot connect.
+The standalone Vokie plugin is no longer included in this repository. The desktop app builds its own native helpers; upstream attribution and MIT notices are retained. Unmodified Vokie clients using the old service UUID cannot connect.
 
 ## Display and resources
 

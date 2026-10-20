@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- 移除不再使用的独立 Vokie 插件及其包完整性检查。Go Voice 继续使用自有原生 helper 和协议测试。README 新增上游致谢，并保留所有适用的许可证声明。
+
 - 准备发布 `go-voice` 0.3.0，包含 Omni Realtime WebSocket 听写、独立调试身份和 Bun watch 入口；同步更新网站的识别功能介绍与 0.3.0 下载链接，网站介绍及更新日志只展示中文。
 
 - 根目录新增 `package.json`，可用 `bun run dev` 启动既有的签名调试 watch 会话：Go 源码与配置变化后自动重构建并重启应用，Ctrl+C 停止会话，无需 JavaScript 依赖。

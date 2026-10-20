@@ -6,7 +6,7 @@ MyGo is an independently implemented Go Voice desktop host. The Go Voice artwork
 
 | Source | Use | License / notice |
 | --- | --- | --- |
-| FoloToy AI Passport and the imported Vokie reference at `ce26ea043251102155e54bc9503eb8133d5cafa8` | Bluetooth helper adapted from `vokie-plugin/helper/AiPassportHelper.swift`; ADPCM and session behavior ported from its worker | MIT, Copyright (c) 2026 FoloToy; full notice in `licenses/FoloToy-MIT.txt` |
+| FoloToy AI Passport and the imported Vokie reference at `ce26ea043251102155e54bc9503eb8133d5cafa8` | Bluetooth helper adapted from the upstream Vokie plugin's `AiPassportHelper.swift`; ADPCM and session behavior ported from its worker. The standalone plugin is no longer bundled | MIT, Copyright (c) 2026 FoloToy; full notice in `licenses/FoloToy-MIT.txt` |
 | MyGo v0.5.5 | Native application, controls, packaging | MIT, Copyright (c) 2026 MyGo contributors; `licenses/MyGo-MIT.txt` |
 | purego v0.11.1 | Security / CoreFoundation bindings and MyGo dependency | Apache-2.0; `licenses/purego-Apache-2.0.txt` |
 | go-text/typesetting v0.3.5 | MyGo text layout dependency | Retained original LICENSE and HarfBuzz notice in `licenses/` |

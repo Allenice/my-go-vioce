@@ -38,6 +38,12 @@ open gui/build/debug/darwin-arm64/go-voice-debug.app
 - 构建产物：`gui/build/debug/darwin-arm64/go-voice-debug.app`
 - 已验证应用包启动、四页显示、zh-CN 模型预热和真实 USB Serial/JTAG 枚举；安装器实际预检/写入/复位、真实工牌 BLE、Speech/辅助功能/自动化授权、ASR、润色和插字仍需交互式真机验收。
 
+## 致谢
+
+感谢 [FoloToy/ai-passport](https://github.com/FoloToy/ai-passport)、[Vokie 固件项目](https://github.com/alanshen6666-collab/vokie-ai-passport-firmware)及其贡献者，开放分享 AI Passport 的硬件支持、固件、BLE 音频协议与桌面集成参考实现。Go Voice 在这些工作之上继续开发，蓝牙 helper 与音频会话实现参考并改编自上游 Vokie 插件。
+
+本仓库不再包含独立 Vokie 插件；`go-voice` 自行构建并使用原生 helper。上游 MIT 版权与许可证声明继续保留在 [LICENSE](LICENSE)、[第三方声明](docs/THIRD_PARTY_NOTICES.zh_CN.md)和[桌面端声明](gui/docs/THIRD_PARTY_NOTICES.zh_CN.md)中。
+
 ## 文档
 
 - [文档索引](docs/README.zh_CN.md) — 使用、构建、验证、硬件与贡献指南。

@@ -39,7 +39,6 @@ gui/
   scripts/                    构建、开发启动、打包与验证
   docs/                       桌面端验收与依赖声明
 website/                      介绍与下载网站（Cloudflare Workers 静态资源）
-vokie-plugin/                 导入的上游参考，不参与桌面端运行
 docs/                         产品、协议、硬件与开发文档
 .github/                      CI、Issue 表单与社区文档
 LICENSE, LICENSES/            项目与第三方许可证及声明

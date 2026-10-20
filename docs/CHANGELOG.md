@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- Remove the unused standalone Vokie plugin and its package checks. Go Voice continues to use its own native helpers and protocol tests. Add upstream acknowledgements to the README and retain all applicable license notices.
+
 - Prepare `go-voice` 0.3.0 with Omni Realtime WebSocket dictation, separate debug identities and the Bun watch entry point; refresh the website's recognition overview and 0.3.0 download links, and show its introduction and release history in Simplified Chinese only.
 
 - Add a root `package.json` with `bun run dev` to launch the existing signed debug watch session: Go source and configuration changes rebuild and restart the app, and Ctrl+C stops the session. No JavaScript dependencies are required.

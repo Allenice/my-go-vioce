@@ -38,6 +38,12 @@ open gui/build/debug/darwin-arm64/go-voice-debug.app
 - Build product: `gui/build/debug/darwin-arm64/go-voice-debug.app`
 - The bundle launch, four pages, zh-CN model warmup, and real USB Serial/JTAG enumeration are verified. Actual installer preflight/write/reset, badge BLE, Speech/Accessibility/Automation grants, ASR, refinement, and insertion remain interactive hardware acceptance items.
 
+## Acknowledgements
+
+Thank you to [FoloToy/ai-passport](https://github.com/FoloToy/ai-passport) and the [Vokie firmware project](https://github.com/alanshen6666-collab/vokie-ai-passport-firmware) and their contributors for sharing the AI Passport hardware support, firmware, BLE audio protocol, and desktop integration reference. Go Voice builds on this work; its Bluetooth helper and audio-session implementation were adapted from the upstream Vokie plugin.
+
+The standalone Vokie plugin is no longer included; `go-voice` builds and uses its own native helpers. The upstream MIT copyright and license notices remain in [LICENSE](LICENSE), [third-party notices](docs/THIRD_PARTY_NOTICES.md), and the [desktop notices](gui/docs/THIRD_PARTY_NOTICES.md).
+
 ## Documentation
 
 - [Documentation index](docs/README.md) — use, build, validation, hardware and contribution guides.

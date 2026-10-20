@@ -39,7 +39,6 @@ gui/
   scripts/                    Builds, development launch, packaging and validation
   docs/                       Desktop acceptance and dependency notices
 website/                      Product and download site (Cloudflare Workers static assets)
-vokie-plugin/                 Imported upstream reference, outside the desktop runtime
 docs/                         Product, protocol, hardware and development documentation
 .github/                      CI, issue forms and community documents
 LICENSE, LICENSES/            Project and third-party licenses and notices
