@@ -53,7 +53,7 @@ func TestLiveJudgments(t *testing.T) {
 			switch {
 			case d.P >= Replace:
 				action = "replace"
-			case d.P <= Keep:
+			case d.OriginalP >= Replace:
 				action = "keep"
 			}
 			t.Logf("p=%.2f %-9s want replace=%-5v %s → %s in %s", d.P, action, c.want[i], d.Heard, d.Term, c.text)

@@ -29,9 +29,15 @@ if [[ "$(uname -m)" != arm64 ]]; then
   exit 1
 fi
 bun_bin="${WAKU_BUN_EXECUTABLE:-bun}"
+# gojieba compiles C++; MyGo otherwise defaults its builds to CGO_ENABLED=0.
+export CGO_ENABLED=1
 # Never replace an unknown directory: this build owns and removes its staging only.
 if [[ -e firmware || -L firmware ]]; then
   echo 'Remove the existing gui/firmware staging directory before building.' >&2
+  exit 1
+fi
+if [[ -e resources/jieba || -L resources/jieba ]]; then
+  echo 'Remove the existing gui/resources/jieba staging directory before building.' >&2
   exit 1
 fi
 native_staging=""
@@ -39,6 +45,9 @@ debug_staging=""
 mkdir firmware
 cleanup_staging() {
   rm -r -- firmware
+  if [[ -d resources/jieba ]]; then
+    rm -r -- resources/jieba
+  fi
   if [[ -n "${native_staging:-}" && -d "$native_staging" ]]; then
     rm -r -- "$native_staging"
   fi
@@ -47,6 +56,14 @@ cleanup_staging() {
   fi
 }
 trap cleanup_staging EXIT
+# Resolve dictionaries from the exact go.mod version, then ship them as app
+# resources. Runtime must not depend on a developer's module-cache paths.
+go mod download github.com/yanyiwu/gojieba
+jieba_module="$(go list -m -f '{{.Dir}}' github.com/yanyiwu/gojieba)"
+mkdir resources/jieba
+for dictionary in jieba.dict.utf8 hmm_model.utf8 user.dict.utf8 idf.utf8 stop_words.utf8; do
+  install -m 0644 "$jieba_module/deps/cppjieba/dict/$dictionary" "resources/jieba/$dictionary"
+done
 "$bun_bin" scripts/package-firmware.mjs
 cargo build --manifest-path firmware-helper/Cargo.toml --release --locked --target aarch64-apple-darwin
 swift build --package-path macos -c "$swift_config"

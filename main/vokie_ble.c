@@ -1,7 +1,9 @@
 #include "vokie_ble.h"
 
 #include "bsp_audio.h"
+#include "audio_idle.h"
 #include "boot_sound.h"
+#include "fw_version.h"
 #include "ui_status.h"
 #include "bsp_button.h"
 #include "button_gesture.h"
@@ -35,6 +37,11 @@ static const uint16_t NO_CONN = BLE_HS_CONN_HANDLE_NONE;
 #define ADPCM_BYTES 166
 #define MAX_CONTROL 182
 #define EMPTY_FINAL_SEQUENCE 0xffffffffUL
+static const char s_hello_json[] =
+    "{\"v\":1,\"type\":\"hello\",\"device\":\"ai-passport\",\"fw\":\"" GO_VOICE_FW_VERSION
+    "\",\"codec\":\"ima-adpcm\",\"sampleRate\":16000,\"channels\":1,\"frameMs\":20}";
+_Static_assert(sizeof(s_hello_json) - 1 <= MAX_CONTROL,
+               "hello JSON must fit in one control notification");
 // NimBLE stores 128-bit UUIDs least-significant byte first.
 #define SERVICE_BYTES 0x00,0x6f,0x69,0x64,0x75,0x61,0x2d,0x65,0x63,0x69,0x6f,0x76,0x01,0x00,0x6f,0x67
 #define CONTROL_BYTES 0x00,0x6f,0x69,0x64,0x75,0x61,0x2d,0x65,0x63,0x69,0x6f,0x76,0x02,0x00,0x6f,0x67
@@ -221,6 +228,17 @@ static void audio_task(void *arg)
             }
             // A request during pause leaves a pending notification. Do not
             // clear notifications separately from this atomic wait.
+            TickType_t idle_ticks = pdMS_TO_TICKS(AUDIO_IDLE_SUSPEND_US / 1000);
+            if (idle_ticks < 1) idle_ticks = 1;
+            if (ulTaskNotifyTake(pdTRUE, idle_ticks) > 0) continue;
+            if (s_recording) continue;
+            // Drop microphone analog bias after a quiet window. The next PTT
+            // reopens the codec and may include the measured ADC startup.
+            if (bsp_audio_suspend() != ESP_OK) {
+                ESP_LOGE(TAG, "Codec suspend failed; retrying");
+                vTaskDelay(pdMS_TO_TICKS(100));
+                continue;
+            }
             ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
             continue;
         }
@@ -384,8 +402,7 @@ static int access_cb(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt *
     (void)attr;
     int kind = (int)(intptr_t)arg;
     if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR && kind == 3) {
-        const char info[] = "{\"v\":1,\"type\":\"hello\",\"device\":\"ai-passport\",\"fw\":\"0.1.0\",\"codec\":\"ima-adpcm\",\"sampleRate\":16000,\"channels\":1,\"frameMs\":20}";
-        return os_mbuf_append(ctxt->om, info, strlen(info));
+        return os_mbuf_append(ctxt->om, s_hello_json, sizeof(s_hello_json) - 1);
     }
     if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR || kind != 1) return BLE_ATT_ERR_READ_NOT_PERMITTED;
     char value[MAX_CONTROL + 1] = {0}; uint16_t len = 0;
@@ -490,8 +507,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
         if (!s_control_subscribed || !s_audio_subscribed) {
             hello_sent = false;
         } else if (!hello_sent) {
-            const char hello[] = "{\"v\":1,\"type\":\"hello\",\"device\":\"ai-passport\",\"fw\":\"0.1.0\",\"codec\":\"ima-adpcm\",\"sampleRate\":16000,\"channels\":1,\"frameMs\":20}";
-            hello_sent = notify_control(hello) == 0;
+            hello_sent = notify_control(s_hello_json) == 0;
         }
     }
     return 0;

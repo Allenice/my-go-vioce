@@ -47,7 +47,7 @@ func encode(r Request) ([]byte, error) {
 	return append(b, '\n'), nil
 }
 
-// Process queues are bounded. Consumers poll Events on their own UI cadence;
+// Process queues are bounded. Consumers receive Events as they arrive;
 // overflow terminates the helper rather than dropping terminal/progress events.
 type Process struct {
 	events  chan Event

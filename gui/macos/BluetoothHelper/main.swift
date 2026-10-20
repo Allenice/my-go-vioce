@@ -72,12 +72,26 @@ private func emit(_ value: [String: Any]) {
     }
   }
   guard JSONSerialization.isValidJSONObject(sanitized),
-        let data = try? JSONSerialization.data(withJSONObject: sanitized),
-        data.count <= maxHelperLineBytes,
-        let line = String(data: data, encoding: .utf8) else { return }
+        var data = try? JSONSerialization.data(withJSONObject: sanitized),
+        data.count <= maxHelperLineBytes else { return }
+  data.append(10)
   outputLock.lock()
   defer { outputLock.unlock() }
-  FileHandle.standardOutput.write(Data((line + "\n").utf8))
+  FileHandle.standardOutput.write(data)
+}
+
+private struct AudioFrameKey: Hashable {
+  var session: UInt32
+  var sequence: UInt32
+}
+
+private func le16(_ data: Data, _ offset: Int) -> UInt16 {
+  UInt16(data[offset]) | UInt16(data[offset + 1]) << 8
+}
+
+private func le32(_ data: Data, _ offset: Int) -> UInt32 {
+  UInt32(data[offset]) | UInt32(data[offset + 1]) << 8 | UInt32(data[offset + 2]) << 16
+    | UInt32(data[offset + 3]) << 24
 }
 
 private final class PendingFrame {
@@ -102,13 +116,13 @@ final class Central: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
   private var control: CBCharacteristic?
   private var audio: CBCharacteristic?
   private var subscribed = Set<CBUUID>()
-  private var pending = [String: PendingFrame]()
+  private var pending = [AudioFrameKey: PendingFrame]()
   // Dictionary iteration order is not a wire-level ordering guarantee. Keep
   // an explicit insertion order so bounded-frame eviction drops the oldest
   // incomplete frame deterministically.
-  private var pendingOrder = [String]()
-  private var completed = Set<String>()
-  private var completedOrder = [String]()
+  private var pendingOrder = [AudioFrameKey]()
+  private var completed = Set<AudioFrameKey>()
+  private var completedOrder = [AudioFrameKey]()
   private var reconnectAttempt = 0
   private var reconnectWorkItem: DispatchWorkItem?
   private var shuttingDown = false
@@ -467,21 +481,31 @@ final class Central: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
   }
 
   private func ingestAudio(_ data: Data) {
-    let bytes = [UInt8](data)
-    guard bytes.count >= audioEnvelopeBytes else { emit(["type": "diagnostic", "level": "warn", "message": "Audio fragment too short"]); return }
-    let magic = UInt16(bytes[0]) | UInt16(bytes[1]) << 8
-    guard magic == audioMagic, bytes[2] == 1, bytes[3] == 0 else { emit(["type": "diagnostic", "level": "warn", "message": "Invalid audio envelope"]); return }
-    let sessionId = UInt32(bytes[4]) | UInt32(bytes[5]) << 8 | UInt32(bytes[6]) << 16 | UInt32(bytes[7]) << 24
-    let sequence = UInt32(bytes[8]) | UInt32(bytes[9]) << 8 | UInt32(bytes[10]) << 16 | UInt32(bytes[11]) << 24
-    let index = Int(bytes[12]); let count = Int(bytes[13])
-    let payloadLength = Int(UInt16(bytes[14]) | UInt16(bytes[15]) << 8)
+    guard data.count >= audioEnvelopeBytes else { emit(["type": "diagnostic", "level": "warn", "message": "Audio fragment too short"]); return }
+    guard le16(data, 0) == audioMagic, data[2] == 1, data[3] == 0 else {
+      emit(["type": "diagnostic", "level": "warn", "message": "Invalid audio envelope"]); return
+    }
+    let sessionId = le32(data, 4)
+    let sequence = le32(data, 8)
+    let index = Int(data[12]); let count = Int(data[13])
+    let payloadLength = Int(le16(data, 14))
     guard count > 0, count <= maxAudioFragments, index < count, payloadLength > 0,
           sequence < UInt32(maxAudioSequences),
-          payloadLength <= maxAudioFrameBytes, bytes.count == audioEnvelopeBytes + payloadLength else {
+          payloadLength <= maxAudioFrameBytes, data.count == audioEnvelopeBytes + payloadLength else {
       emit(["type": "diagnostic", "level": "warn", "message": "Invalid audio fragment length"]); return
     }
-    let key = "\(sessionId):\(sequence)"
+    let key = AudioFrameKey(session: sessionId, sequence: sequence)
     if completed.contains(key) { return }
+    let payload = data[audioEnvelopeBytes..<(audioEnvelopeBytes + payloadLength)]
+    if count == 1 {
+      guard index == 0, payloadLength == maxAudioFrameBytes else {
+        emit(["type": "diagnostic", "level": "warn", "message": "Incomplete ADPCM frame payload"])
+        return
+      }
+      rememberCompleted(key)
+      emit(["type": "audio", "sessionId": Int(sessionId), "sequence": Int(sequence), "payloadBase64": payload.base64EncodedString()])
+      return
+    }
     let frame: PendingFrame
     if let existing = pending[key] {
       frame = existing
@@ -502,7 +526,7 @@ final class Central: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
         emit(["type": "diagnostic", "level": "warn", "message": "Audio frame exceeds ADPCM payload limit"])
         return
       }
-      frame.parts[index] = Data(bytes[audioEnvelopeBytes..<(audioEnvelopeBytes + payloadLength)])
+      frame.parts[index] = Data(payload)
       frame.totalBytes += payloadLength
       frame.received += 1
     }
@@ -512,17 +536,20 @@ final class Central: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
       emit(["type": "diagnostic", "level": "warn", "message": "Incomplete ADPCM frame payload"])
       return
     }
+    rememberCompleted(key)
+    let assembled = frame.parts.compactMap { $0 }.reduce(into: Data()) { $0.append($1) }
+    emit(["type": "audio", "sessionId": Int(sessionId), "sequence": Int(sequence), "payloadBase64": assembled.base64EncodedString()])
+  }
+
+  private func rememberCompleted(_ key: AudioFrameKey) {
     completed.insert(key)
     completedOrder.append(key)
     if completedOrder.count > 128 {
-      let old = completedOrder.removeFirst()
-      completed.remove(old)
+      completed.remove(completedOrder.removeFirst())
     }
-    let payload = frame.parts.compactMap { $0 }.reduce(into: Data()) { $0.append($1) }
-    emit(["type": "audio", "sessionId": Int(sessionId), "sequence": Int(sequence), "payloadBase64": payload.base64EncodedString()])
   }
 
-  private func removePending(_ key: String) {
+  private func removePending(_ key: AudioFrameKey) {
     guard pending.removeValue(forKey: key) != nil else { return }
     if let index = pendingOrder.firstIndex(of: key) {
       pendingOrder.remove(at: index)

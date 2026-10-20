@@ -22,7 +22,7 @@ var jevPresets = []struct {
 // runs at TypeSafe or at any provider of its System One API.
 func (v *View) judge(c *ui.Context) {
 	s := v.Snapshot
-	notice(c, "jev-about", fmt.Sprintf("读音像词库词的片段（如“一致”像“伊智”）不再全靠 AI 润色决定：Jev 对每处给出“说的就是这个词”的概率，≥ %.0f%% 直接替换，≤ %.0f%% 保留原文并让 AI 润色不要改，其余仍由 AI 润色判断。只处理两个字以上的中文词条；英文词条和替换词不受影响。", jev.Replace*100, jev.Keep*100), false)
+	notice(c, "jev-about", fmt.Sprintf("先在本地分词，再结合完整识别文字，比较同一位置的同音候选词和原文。Jev 选中的候选词概率 ≥ %.0f%% 才直接替换；保留原文的概率达到同一标准时，让 AI 润色不要改；拿不准的仍由 AI 润色判断。只处理两个字以上的中文词条；英文词条和替换词不受影响。", jev.Replace*100), false)
 	group(c, "jev", "Jev 词库判断", nil, func() {
 		row(c, "jev-enabled", func() {
 			ui.Column(c).Grow(1).MinWidth(0).Gap(3).Children(func() {
@@ -53,7 +53,7 @@ func (v *View) judge(c *ui.Context) {
 		})
 	})
 	if v.Jev.Enabled {
-		notice(c, "jev-privacy", "开启后，识别文字中命中词库读音的片段及其前后各约 40 个字，连同命中的词条，会发送到 "+v.Jev.Host()+" 判断。不发送音频和完整词库；没有命中时不发送任何内容。", true)
+		notice(c, "jev-privacy", "开启后，每次有同音候选命中时，会把本次完整识别文字、分词结果和命中的候选词发送到 "+v.Jev.Host()+" 判断。不发送音频和完整词库；没有命中时不发送。文字过长时跳过，不截断上下文。", true)
 	}
 	ui.Row(c).Gap(12).Wrap().GapY(12).Children(func() {
 		if pill(c, "jev-delete-key", "删除凭据", pillDanger, nil, nil, false) {

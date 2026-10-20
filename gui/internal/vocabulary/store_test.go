@@ -23,8 +23,11 @@ func TestDeduplicateLockedAndPersistence(t *testing.T) {
 		t.Fatal(e, s.Terms)
 	}
 	_ = s.Put(Term{Term: "伊智", Source: "correction", Weight: 95}, false)
-	if top := s.Top(1); len(top) != 1 || top[0] != "MYGO" || s.Terms[0].LastUsedAt.IsZero() {
+	if top := s.Top(1); len(top) != 1 || top[0] != "MYGO" {
 		t.Fatal(top)
+	}
+	if !s.Terms[0].LastUsedAt.IsZero() {
+		t.Fatal("Top must not rewrite lastUsedAt")
 	}
 	path := filepath.Join(t.TempDir(), "vocabulary.json")
 	if e := s.Save(path); e != nil {

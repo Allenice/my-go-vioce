@@ -3,5 +3,6 @@
 /firmware-helper/target/
 /macos/.build/
 /resources/native/
+/resources/jieba/
 .DS_Store
 /.local/

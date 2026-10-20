@@ -1,6 +1,7 @@
 idf_component_register(
     SRCS "src/bsp_i2c.c"
          "src/bsp_display.c"
+         "src/bsp_display_sleep.c"
          "src/bsp_display_lvgl.c"
          "src/bsp_button.c"
          "src/bsp_audio.c"

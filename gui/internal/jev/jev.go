@@ -1,13 +1,10 @@
-// Package jev judges the vocabulary corrections of a dictation with Jev,
-// TypeSafe's System One model: for each span that sounds like a vocabulary
-// term, the probability that the speaker said the term. Code, not a
-// language model, then replaces the likely ones and keeps the unlikely.
+// Package jev chooses vocabulary corrections using local segmentation and
+// full-dictation context. Code applies only confident, competing choices.
 package jev
 
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,8 +13,10 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/vfasky/my-ai-audio/gui/internal/refinement"
+	"github.com/vfasky/my-ai-audio/gui/internal/segmentation"
 )
 
 // Config is the setting of the vocabulary check; the zero value is off.
@@ -84,18 +83,9 @@ func KeyAccount(c Config) string {
 }
 
 const (
-	// A span is replaced at Replace or above, and kept, with refinement
-	// told not to change it, at Keep or below; refinement still decides
-	// the others.
+	// Both replacement and preservation require a confident choice.
 	Replace = 0.7
-	Keep    = 0.3
-	// Timeout bounds the check of one dictation; past it the dictation
-	// goes on without.
 	Timeout = 4 * time.Second
-	// maxSpans bounds the questions of one request.
-	maxSpans = 24
-	// contextRunes of the dictation each side of a span go with it.
-	contextRunes = 40
 )
 
 // transport carries the requests; tests replace it.
@@ -103,9 +93,11 @@ var transport http.RoundTripper = http.DefaultTransport
 
 // Why a check failed.
 var (
-	ErrKey      = errors.New("jev: key unavailable")
-	ErrConfig   = errors.New("jev: invalid endpoint")
-	ErrResponse = errors.New("jev: invalid response")
+	ErrKey          = errors.New("jev: key unavailable")
+	ErrConfig       = errors.New("jev: invalid endpoint")
+	ErrResponse     = errors.New("jev: invalid response")
+	ErrSegmentation = errors.New("jev: segmentation unavailable")
+	ErrTooLong      = errors.New("jev: dictation too long")
 )
 
 // StatusError is a reply other than HTTP 200.
@@ -117,6 +109,8 @@ func (e *StatusError) Error() string { return fmt.Sprintf("jev: HTTP %d", e.Code
 type Decision struct {
 	refinement.Span
 	P float64
+	// OriginalP is the probability of retaining the original in this group.
+	OriginalP float64
 }
 
 // Result is a dictation after the check.
@@ -132,8 +126,15 @@ type Result struct {
 // Check asks Jev about the spans of text that sound like a term and
 // applies the answers. Without such spans it sends nothing.
 func Check(ctx context.Context, c Config, text string, terms []string, key string) (Result, error) {
+	if err := ctx.Err(); err != nil {
+		return Result{Text: text}, err
+	}
+	if utf8.RuneCountInString(text) > maxTextRunes {
+		return Result{Text: text}, ErrTooLong
+	}
 	spans := refinement.Spans(text, terms)
-	if len(spans) == 0 {
+	groups := groupSpans(spans)
+	if len(groups) == 0 {
 		return Result{Text: text}, nil
 	}
 	endpoint, err := c.URL()
@@ -143,10 +144,17 @@ func Check(ctx context.Context, c Config, text string, terms []string, key strin
 	if key == "" {
 		return Result{Text: text}, ErrKey
 	}
-	if len(spans) > maxSpans {
-		spans = spans[:maxSpans]
+	tokens, err := segmentation.Cut(text, terms...)
+	if err != nil {
+		return Result{Text: text}, ErrSegmentation
 	}
-	body, names := request(Normalize(c).Model, text, spans)
+	if err := ctx.Err(); err != nil {
+		return Result{Text: text}, err
+	}
+	body, names := request(Normalize(c).Model, text, groups, tokens)
+	if len(body) > maxRequestBytes {
+		return Result{Text: text}, ErrTooLong
+	}
 	status, b, err := post(ctx, endpoint, key, body)
 	if err != nil {
 		return Result{Text: text}, err
@@ -154,86 +162,16 @@ func Check(ctx context.Context, c Config, text string, terms []string, key strin
 	if status != 200 {
 		return Result{Text: text}, &StatusError{status}
 	}
-	probabilities, err := answers(b, names)
+	decisions, err := answers(b, names, groups)
 	if err != nil {
 		return Result{Text: text}, err
-	}
-	decisions := make([]Decision, len(spans))
-	for i, s := range spans {
-		decisions[i] = Decision{s, probabilities[i]}
 	}
 	return apply(text, decisions), nil
 }
 
-// question is a Noul: the probability that its instructions hold.
-type question struct {
-	Type         string            `json:"type"`
-	Instructions string            `json:"instructions"`
-	Criteria     map[string]string `json:"criteria"`
-}
-
-// request builds the body: each span is a field of the state, with the
-// dictation around it marked, and one question names it, so that each
-// judgment sees only its span.
-func request(model, text string, spans []refinement.Span) ([]byte, []string) {
-	runes := []rune(text)
-	fields := map[string]any{}
-	questions := map[string]question{}
-	names := make([]string, len(spans))
-	for i, s := range spans {
-		name := fmt.Sprintf("s%d", i+1)
-		names[i] = name
-		from, to := max(0, s.Start-contextRunes), min(len(runes), s.End+contextRunes)
-		fields[name] = map[string]string{
-			"context": string(runes[from:s.Start]) + "【" + s.Heard + "】" + string(runes[s.End:to]),
-			"heard":   s.Heard,
-			"term":    s.Term,
-			"pinyin":  s.Pinyin,
-			"match":   s.Match,
-		}
-		questions[name] = question{
-			Type: "noul",
-			Instructions: fmt.Sprintf("Judge only state field spans.%s. Speech recognition wrote the bracketed words of spans.%s.context as spans.%s.heard. "+
-				"Did the speaker actually say the vocabulary term spans.%s.term there?", name, name, name, name),
-			Criteria: map[string]string{
-				"true":  "Writing the term in place of the bracketed words gives what the speaker meant.",
-				"false": "The bracketed words as written are what the speaker meant.",
-			},
-		}
-	}
-	state := map[string]any{
-		"note":  "Dictated Chinese text. The vocabulary lists names and terms the user says often; speech recognition does not know them and writes them as common words of the same or a similar sound (match: same or similar pinyin).",
-		"spans": fields,
-	}
-	b, _ := json.Marshal(map[string]any{"model": model, "state": state, "questions": questions})
-	return b, names
-}
-
-// answers reads the probability of each named question.
-func answers(b []byte, names []string) ([]float64, error) {
-	var v struct {
-		Answers map[string]struct {
-			Type string   `json:"type"`
-			Noul *float64 `json:"noul"`
-		} `json:"answers"`
-	}
-	if json.Unmarshal(b, &v) != nil {
-		return nil, ErrResponse
-	}
-	out := make([]float64, len(names))
-	for i, n := range names {
-		a, ok := v.Answers[n]
-		if !ok || a.Type != "noul" || a.Noul == nil || *a.Noul < 0 || *a.Noul > 1 {
-			return nil, ErrResponse
-		}
-		out[i] = *a.Noul
-	}
-	return out, nil
-}
-
 // apply replaces the likely spans, most likely first, skipping any that
-// overlaps one already replaced; a heard word is kept when every
-// judgment left in the text found it unlikely.
+// overlaps one already replaced; a heard word is protected only when all
+// remaining occurrences were judged confidently as the original.
 func apply(text string, decisions []Decision) Result {
 	res := Result{Text: text, Decisions: decisions}
 	order := slices.Clone(decisions)
@@ -266,16 +204,23 @@ func apply(text string, decisions []Decision) Result {
 	}
 	res.Text = string(runes)
 	keep := map[string]bool{}
+	covered := map[string]map[int]bool{}
 	for _, d := range decisions {
 		if overlaps(d) {
 			continue
 		}
+		if covered[d.Heard] == nil {
+			covered[d.Heard] = map[int]bool{}
+		}
+		covered[d.Heard][d.Start] = true
 		if seen, ok := keep[d.Heard]; !ok || seen {
-			keep[d.Heard] = d.P <= Keep
+			keep[d.Heard] = d.OriginalP >= Replace
 		}
 	}
 	for _, d := range decisions {
-		if keep[d.Heard] && !slices.Contains(res.Keep, d.Heard) {
+		// Refinement's keep list is word-wide. Do not extend a judgment to
+		// an occurrence omitted by the request limits or introduced by an edit.
+		if keep[d.Heard] && strings.Count(res.Text, d.Heard) == len(covered[d.Heard]) && !slices.Contains(res.Keep, d.Heard) {
 			res.Keep = append(res.Keep, d.Heard)
 		}
 	}
@@ -331,6 +276,10 @@ func Test(ctx context.Context, c Config, key string) (TestResult, error) {
 func Message(err error) string {
 	var status *StatusError
 	switch {
+	case errors.Is(err, ErrSegmentation):
+		return "本地分词词典不可用。"
+	case errors.Is(err, ErrTooLong):
+		return "文字或候选过多，已跳过完整上下文判断。"
 	case errors.Is(err, ErrConfig):
 		return "接口地址无效：需要 https:// 开头、不含账号和查询参数的地址，例如 " + DefaultEndpoint + "。"
 	case errors.Is(err, ErrKey):

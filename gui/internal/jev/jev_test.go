@@ -30,8 +30,13 @@ func serve(t *testing.T, p func(heard, context string) float64) (Config, *[]map[
 		}
 		b, _ := io.ReadAll(r.Body)
 		var req struct {
-			Model     string
-			State     struct{ Spans map[string]map[string]string }
+			Model string
+			State struct {
+				Spans map[string]struct {
+					Context string
+					Options map[string]struct{ Heard, Term string }
+				}
+			}
 			Questions map[string]question
 		}
 		if err := json.Unmarshal(b, &req); err != nil || req.Model != "jev-1.13" {
@@ -43,12 +48,25 @@ func serve(t *testing.T, p func(heard, context string) float64) (Config, *[]map[
 		seen = append(seen, body)
 		out := map[string]any{}
 		for name, q := range req.Questions {
-			span := req.State.Spans[name]
-			if q.Type != "noul" || span == nil || !strings.Contains(q.Instructions, "spans."+name+".") {
+			span, exists := req.State.Spans[name]
+			if q.Type != "choice" || !exists || !strings.Contains(q.Instructions, "spans."+name) || q.Criteria["keep"] == "" {
 				w.WriteHeader(422)
 				return
 			}
-			out[name] = map[string]any{"type": "noul", "noul": p(span["heard"], span["context"])}
+			probabilities := map[string]float64{}
+			total := 0.0
+			for key, option := range span.Options {
+				probabilities[key] = p(option.Heard, span.Context) / float64(len(span.Options))
+				total += probabilities[key]
+			}
+			probabilities["keep"] = 1 - total
+			winner := "keep"
+			for key, probability := range probabilities {
+				if probability > probabilities[winner] {
+					winner = key
+				}
+			}
+			out[name] = map[string]any{"type": "choice", "choice": winner, "probabilities": probabilities}
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"model": req.Model, "answers": out})
 	}))
@@ -93,7 +111,7 @@ func TestCheckSendsNothingWithoutSpans(t *testing.T) {
 	}
 }
 
-func TestCheckSendsOnlyTheMatchedTermsAndContext(t *testing.T) {
+func TestCheckSendsFullDictationButOnlyMatchedTerms(t *testing.T) {
 	cfg, seen := serve(t, func(string, string) float64 { return 0 })
 	long := strings.Repeat("前", 60) + "一致科技" + strings.Repeat("后", 60)
 	if _, err := Check(context.Background(), cfg, long, []string{"伊智", "私域宝", "Go Voice"}, "test-key"); err != nil {
@@ -101,8 +119,8 @@ func TestCheckSendsOnlyTheMatchedTermsAndContext(t *testing.T) {
 	}
 	b, _ := json.Marshal((*seen)[0])
 	sent := string(b)
-	if strings.Contains(sent, "私域宝") || strings.Contains(sent, "Go Voice") || strings.Contains(sent, strings.Repeat("前", contextRunes+1)) {
-		t.Fatalf("sent more than the span and its context: %s", sent)
+	if strings.Contains(sent, "私域宝") || strings.Contains(sent, "Go Voice") || !strings.Contains(sent, long) || !strings.Contains(sent, `"tokens":`) {
+		t.Fatalf("missing full context/segmentation or unrelated terms sent: %s", sent)
 	}
 }
 
@@ -115,7 +133,7 @@ func TestApplyPrefersTheLikelierOfOverlappingSpans(t *testing.T) {
 		if s.Term == "私域宝" {
 			p = 0.95
 		}
-		decisions = append(decisions, Decision{s, p})
+		decisions = append(decisions, Decision{Span: s, P: p})
 	}
 	if len(decisions) != 2 {
 		t.Fatalf("spans %+v", spans)

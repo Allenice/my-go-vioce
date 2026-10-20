@@ -20,11 +20,12 @@ esp_err_t bsp_audio_set_format(uint32_t hz, uint8_t bits, uint8_t ch);
 // while retaining microphone bias and filter state. set_format() resumes fresh
 // DMA without a cold ADC restart.
 // Idempotent; blocking, audio-worker context only, serialized with all PCM I/O.
-// Does not power down the codec: residual analog current must be measured.
+// Does not power down the codec: residual analog current remains until suspend().
 esp_err_t bsp_audio_pause(void);
 
 // Fully close codec/I2S until set_format() reopens it (including the same format).
-// Use for teardown or format changes; recording idle should use pause().
+// Use for teardown, format changes, and capture-idle after pause() so the analog
+// front end is not left biased. The next set_format() pays a cold ADC start.
 // Idempotent. The audio worker must serialize this with all PCM I/O.
 esp_err_t bsp_audio_suspend(void);
 

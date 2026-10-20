@@ -58,6 +58,17 @@ run_static_checks() {
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
         tests/test_button_gesture.c -o "${test_dir}/test_button_gesture"
     "${test_dir}/test_button_gesture"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_button_scan.c -o "${test_dir}/test_button_scan"
+    "${test_dir}/test_button_scan"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_audio_idle.c -o "${test_dir}/test_audio_idle"
+    "${test_dir}/test_audio_idle"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
+        -Itests/display_sleep_stubs -Itests/battery_stubs -Icomponents/bsp/include \
+        tests/test_bsp_display_sleep.c components/bsp/src/bsp_display_sleep.c \
+        -o "${test_dir}/test_bsp_display_sleep"
+    "${test_dir}/test_bsp_display_sleep"
     python3 tests/test_go_voice_contract.py
     python3 tests/test_verify_firmware.py
     rm -rf "${test_dir}"

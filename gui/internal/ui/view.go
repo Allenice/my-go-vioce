@@ -18,14 +18,14 @@ import (
 
 type Device struct{ ID, Name string }
 type Snapshot struct {
-	Install                                                                          firmware.State
-	SpeechActive                                                                     bool
-	Devices                                                                          []Device
-	Selected, Connection, Firmware, Phase, Partial, Original, Refined, Status, Model string
-	Ready                                                                            bool
-	Meter                                                                            protocol.Meter
-	Terms                                                                            []vocabulary.Term
-	Replacements                                                                     []vocabulary.Replacement
+	Install                                                                                           firmware.State
+	SpeechActive                                                                                      bool
+	Devices                                                                                           []Device
+	Selected, Connection, Firmware, BundledFirmware, Phase, Partial, Original, Refined, Status, Model string
+	Ready                                                                                             bool
+	Meter                                                                                             protocol.Meter
+	Terms                                                                                             []vocabulary.Term
+	Replacements                                                                                      []vocabulary.Replacement
 	// VocabFeedback is how the last import or export of the vocabulary
 	// ended.
 	VocabFeedback   string
@@ -208,6 +208,11 @@ func (v *View) sidebar(c *ui.Context) {
 								ui.Badge(c, fmt.Sprint(len(v.Snapshot.Terms))).Background(colPill).TextColor(colMuted)
 							})
 						}
+						if p.id == "firmware" && firmware.NeedsUpdate(v.Snapshot.Firmware, v.Snapshot.BundledFirmware) {
+							item.Children(func() {
+								ui.Badge(c, "更新").Background(colOrange).TextColor(ui.Hex("#FFFFFF"))
+							})
+						}
 						if missing := len(v.Snapshot.Permissions.Missing()); p.id == "permissions" && missing > 0 {
 							item.Children(func() {
 								ui.Badge(c, fmt.Sprint(missing)).Background(colOrange).TextColor(ui.Hex("#FFFFFF"))
@@ -251,6 +256,9 @@ func (v *View) connectionCard(c *ui.Context) {
 				ui.Text(c, title).FontSize(12).FontWeight(600).SingleLine()
 			})
 			detail := "固件 " + fallback(s.Firmware, "未知")
+			if firmware.NeedsUpdate(s.Firmware, s.BundledFirmware) {
+				detail += " · 可更新"
+			}
 			if s.Selected == "" {
 				detail = "尚未选择设备"
 			}
@@ -587,6 +595,13 @@ func (v *View) firmware(c *ui.Context) {
 		}
 	})
 
+	group(c, "versions", "固件版本", nil, func() {
+		kv(c, "设备", fallback(v.Snapshot.Firmware, "未读取"))
+		kv(c, "随附", fallback(v.Snapshot.BundledFirmware, "未知"))
+	})
+	status, warn := firmwareStatus(v.Snapshot.Firmware, v.Snapshot.BundledFirmware)
+	notice(c, "fw-status", status, warn)
+
 	notice(c, "lock", "安装前会断开当前蓝牙设备；写入开始后无法取消。写入、验证和重启期间请勿拔线或退出应用。", true)
 	notice(c, "cable", "请使用可靠的 USB 数据线，并确认选中的设备。不显示或保存 USB 序列号；USB 选择不证明设备身份，也不会自动绑定蓝牙设备。", false)
 
@@ -657,7 +672,7 @@ func (v *View) vocabulary(c *ui.Context) {
 		v.judge(c)
 		return
 	}
-	notice(c, "vocab", "词条帮助识别和 AI 润色认出专有名词：下一次语音开始时应用 Top 100；锁定词不能被 AI 自动删除。", false)
+	notice(c, "vocab", "词条帮助 Apple 本地识别、分词和 AI 润色认出专有名词：下一次语音优先选取锁定和高权重词条，再用替换目标补齐 Top 100；锁定词不能被 AI 自动删除。", false)
 	title := "添加词条"
 	if v.editing != "" {
 		title = "编辑词条"
@@ -714,7 +729,7 @@ func (v *View) vocabulary(c *ui.Context) {
 // replacements is the replacement tab of the vocabulary page: what
 // recognition writes, and what it becomes before anything else sees it.
 func (v *View) replacements(c *ui.Context) {
-	notice(c, "replace", "识别结果中出现原词时，会直接改成替换词，不经过 AI；胶囊预览、插入的原文和 AI 润色看到的都是替换后的文字。英文原词不区分大小写，只匹配完整单词。", false)
+	notice(c, "replace", "出现原词时仍在本地直接替换，不经过 AI；英文只匹配完整单词。最终文字还会按词边界匹配被空格拆开的中文原词（如“施 玉 宝”），不跨标点和换行；关闭 AI 润色和 Jev 时也生效。替换目标也会补充进下次语音的词表。", false)
 	title := "添加替换词"
 	if v.editingFrom != "" {
 		title = "编辑替换词"
@@ -1021,6 +1036,25 @@ func fallback(s, alt string) string {
 		return alt
 	}
 	return s
+}
+
+func firmwareStatus(device, bundled string) (string, bool) {
+	switch firmware.Relate(device, bundled) {
+	case firmware.Older:
+		return "设备固件 " + device + " 低于随附 " + bundled + "，建议安装。", true
+	case firmware.Equal:
+		return "设备已是随附固件 " + bundled + "。", false
+	case firmware.Newer:
+		return "设备固件 " + device + " 比随附 " + bundled + " 更新。除非要重装随附版本，否则不必安装。", false
+	default:
+		if bundled == "" {
+			return "无法读取随附固件版本。请重新安装 go-voice。", true
+		}
+		if device == "" {
+			return "尚未通过蓝牙读取设备固件。随附版本 " + bundled + "。连接 FoloToy AI Passport 后可核对是否需要更新。", false
+		}
+		return "无法比较设备固件 " + device + " 与随附 " + bundled + "。", true
+	}
 }
 
 func pick2(cond bool, a, b string) string {

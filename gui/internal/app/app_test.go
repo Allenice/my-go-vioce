@@ -1,7 +1,9 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +18,7 @@ import (
 	"github.com/vfasky/my-ai-audio/gui/internal/jev"
 	"github.com/vfasky/my-ai-audio/gui/internal/permission"
 	"github.com/vfasky/my-ai-audio/gui/internal/platform/bridge"
+	"github.com/vfasky/my-ai-audio/gui/internal/protocol"
 	"github.com/vfasky/my-ai-audio/gui/internal/refinement"
 	appui "github.com/vfasky/my-ai-audio/gui/internal/ui"
 	"github.com/vfasky/my-ai-audio/gui/internal/vocabulary"
@@ -449,7 +452,7 @@ func TestJevMessages(t *testing.T) {
 		if s.Start < 10 {
 			p = 0.93
 		}
-		res.Decisions = append(res.Decisions, jev.Decision{Span: s, P: p})
+		res.Decisions = append(res.Decisions, jev.Decision{Span: s, P: p, OriginalP: 1 - p})
 	}
 	msg, ok := jevTestMessage(res, nil)
 	if !ok || !strings.Contains(msg, "“讨论一致科技”93%，替换为“伊智”") || !strings.Contains(msg, "“见很一致”6%，保留原文") {
@@ -476,5 +479,75 @@ func TestConfigureJevRefusesAnInvalidEndpoint(t *testing.T) {
 	s := a.view.Snapshot
 	if a.config.Jev.Enabled || s.JevFeedbackOK || !strings.HasPrefix(s.JevFeedback, "未保存：接口地址无效") {
 		t.Fatalf("%+v %q", a.config.Jev, s.JevFeedback)
+	}
+}
+
+func TestSessionPaintSkipsVocabularyCopy(t *testing.T) {
+	a := &application{}
+	if err := a.store.Put(vocabulary.Term{Term: "伊智", Source: "manual", Weight: 50}, false); err != nil {
+		t.Fatal(err)
+	}
+	a.coordinator.Ready = true
+	a.coordinator.Phase = "recording"
+	a.coordinator.Partial = "hi"
+	a.effects(nil)
+	if a.view.Snapshot.Terms != nil {
+		t.Fatal("session paint copied vocabulary")
+	}
+	if !a.view.Snapshot.Ready || a.view.Snapshot.Phase != "recording" || a.view.Snapshot.Partial != "hi" {
+		t.Fatalf("%+v", a.view.Snapshot)
+	}
+	a.refresh()
+	if len(a.view.Snapshot.Terms) != 1 {
+		t.Fatal("full refresh skipped vocabulary")
+	}
+}
+
+func TestStartDoesNotRewriteVocabulary(t *testing.T) {
+	dir := t.TempDir()
+	a := &application{directory: dir}
+	if err := a.store.Put(vocabulary.Term{Term: "伊智", Source: "manual", Weight: 50}, false); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "vocabulary.json")
+	if err := a.store.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.coordinator.Ready = true
+	a.effects(a.coordinator.Control(protocol.Control{Type: "ptt_down", SessionID: 7, Seq: 0}, time.Now()))
+	after, err := os.ReadFile(path)
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("vocabulary rewritten: %v %s", err, after)
+	}
+	if !a.coordinator.Active || len(a.terms) != 1 || a.terms[0] != "伊智" {
+		t.Fatalf("start %+v %v", a.coordinator, a.terms)
+	}
+}
+
+func TestEncodePCMLine(t *testing.T) {
+	pcm := bytes.Repeat([]byte{1}, 640)
+	line := encodePCM(9, 3, pcm)
+	if len(line) == 0 || line[len(line)-1] != '\n' {
+		t.Fatal("newline")
+	}
+	var cmd struct {
+		Type          string `json:"type"`
+		SessionID     uint32 `json:"sessionId"`
+		Sequence      uint32 `json:"sequence"`
+		PayloadBase64 string `json:"payloadBase64"`
+	}
+	if err := json.Unmarshal(line[:len(line)-1], &cmd); err != nil {
+		t.Fatal(err)
+	}
+	if cmd.Type != "pcm" || cmd.SessionID != 9 || cmd.Sequence != 3 {
+		t.Fatalf("%+v", cmd)
+	}
+	raw, err := base64.StdEncoding.DecodeString(cmd.PayloadBase64)
+	if err != nil || !bytes.Equal(raw, pcm) || cmd.PayloadBase64 != base64.StdEncoding.EncodeToString(pcm) {
+		t.Fatalf("payload %v", err)
 	}
 }

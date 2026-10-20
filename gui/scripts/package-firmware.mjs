@@ -3,6 +3,15 @@ import { mkdir, open, rename, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 
+const versionHeader = resolve(dirname(import.meta.path), "../../main/fw_version.h");
+
+export async function readFirmwareVersion(path = versionHeader) {
+  const text = await Bun.file(path).text();
+  const match = text.match(/^#define GO_VOICE_FW_VERSION "(\d+\.\d+\.\d+)"$/m);
+  if (!match) throw new Error("Firmware version missing from fw_version.h");
+  return match[1];
+}
+
 export const layout = {
   schemaVersion: 1, product: "Go Voice", chip: "esp32c3", flashSize: 8388608,
   appOffset: 65536, appMaxSize: 3145728,
@@ -17,7 +26,7 @@ export const layout = {
   recoveryMarker: "UP held: booting permanent recovery",
 };
 
-export async function inspectFirmware(input) {
+export async function inspectFirmware(input, options = {}) {
   // O_NOFOLLOW rejects symlinks; O_NONBLOCK prevents a FIFO from blocking before fstat.
   const file = await open(input, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
@@ -30,14 +39,15 @@ export async function inspectFirmware(input) {
     const bytes = await file.readFile();
     if (bytes.length !== stat.size) throw new Error("Firmware changed while reading");
     if (bytes[0] !== 0xe9) throw new Error("Firmware must start with ESP image magic 0xE9");
-    return { bytes, manifest: { ...layout, appSize: bytes.length, appSha256: createHash("sha256").update(bytes).digest("hex") } };
+    const firmwareVersion = options.firmwareVersion ?? await readFirmwareVersion();
+    return { bytes, manifest: { ...layout, firmwareVersion, appSize: bytes.length, appSha256: createHash("sha256").update(bytes).digest("hex") } };
   } finally {
     await file.close();
   }
 }
 
-export async function packageFirmware(input, output) {
-  const { bytes, manifest } = await inspectFirmware(input);
+export async function packageFirmware(input, output, options = {}) {
+  const { bytes, manifest } = await inspectFirmware(input, options);
   await mkdir(output, { recursive: true });
   const manifestPath = resolve(output, "manifest.json");
   const temporary = `${manifestPath}.${randomUUID()}.tmp`;

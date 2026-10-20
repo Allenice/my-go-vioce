@@ -9,11 +9,15 @@ import (
 
 func TestHelperValidation(t *testing.T) {
 	b := make([]byte, 166)
+	b[0] = 7
 	valid := Event{Type: "audio", SessionID: 4, Sequence: 2, PayloadBase64: base64.StdEncoding.EncodeToString(b)}
 	line, _ := json.Marshal(valid)
 	e, err := Parse(line)
-	if err != nil || len(e.Payload) != 166 {
-		t.Fatal(err)
+	if err != nil || len(e.Payload) != 166 || e.Payload[0] != 7 || e.SessionID != 4 || e.Sequence != 2 {
+		t.Fatal(err, e)
+	}
+	if _, err = Parse([]byte(`{"type":"audio","sessionId":1,"sequence":0,"payloadBase64":"AA==","extra":1}`)); err == nil {
+		t.Fatal("audio extra field")
 	}
 	cases := []string{`{"type":"audio","payloadBase64":"AA=="}`, `{"type":"discovered","deviceName":"` + strings.Repeat("x", 257) + `"}`, `{"type":"audio","sessionId":1,"sequence":15000,"payloadBase64":"AA=="}`, `{"type":"control","payloadBase64":"AB=="}`, `{"type":"control","payloadBase64":"AA==\n"}`, `{"type":"connected","unexpected":1}`, `{"type":"connected","type":"connected"}`, `{"type":"error","message":"` + strings.Repeat("x", 129) + `"}`, strings.Repeat(" ", MaxLine+1)}
 	for _, line := range cases {

@@ -8,6 +8,8 @@
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
 #include "esp_log.h"
+#include "esp_timer.h"
+#include <stdbool.h>
 
 static const char *TAG = "bsp_btn";
 
@@ -16,6 +18,13 @@ static const uint16_t BTN_MV[BSP_BTN_COUNT][2] = BSP_BTN_MV_TABLE;
 static button_handle_t s_btn[BSP_BTN_COUNT];
 static bsp_btn_cb_t    s_cb;
 static void           *s_user;
+static esp_timer_handle_t s_idle_timer;
+static bool            s_idle_requested;
+static bool            s_idle_scanning;
+
+// Keep CONFIG_BUTTON_PERIOD_TIME_MS at 20 ms for long-press tick math. This
+// overlay only runs while idle-scan is requested and every key is up.
+#define BSP_BTN_IDLE_SCAN_US (50LL * 1000)
 
 // ADC1 是 unit 级独占资源:iot_button 与 bsp_button_read_mv() 必须共用同一个 oneshot
 // 句柄。谁第二个调 adc_oneshot_new_unit() 谁就拿到 "adc1 is already in use"。
@@ -38,6 +47,48 @@ static void cb_release(void *a, void *u) { on_event(a, u, BSP_BTN_RELEASE); }
 static void cb_click (void *a, void *u) { on_event(a, u, BSP_BTN_CLICK);  }
 static void cb_double(void *a, void *u) { on_event(a, u, BSP_BTN_DOUBLE); }
 static void cb_long  (void *a, void *u) { on_event(a, u, BSP_BTN_LONG);   }
+
+static esp_err_t apply_scan(void);
+
+// 1 = a key is down, 0 = released, -1 = ADC unreadable so keep 20 ms scans.
+static int key_down(void)
+{
+    int mv = bsp_button_read_mv();
+    if (mv < 0) return -1;
+    return mv <= BTN_MV[BSP_BTN_COUNT - 1][1];
+}
+
+static void idle_poll(void *arg)
+{
+    (void)arg;
+    (void)apply_scan();
+}
+
+static esp_err_t apply_scan(void)
+{
+    // No overlay timer means we must keep the compiled 20 ms path.
+    const bool fast = !s_idle_requested || !s_idle_timer || key_down() != 0;
+    if (fast) {
+        if (s_idle_timer) (void)esp_timer_stop(s_idle_timer);
+        esp_err_t err = iot_button_resume();
+        if (err == ESP_OK) s_idle_scanning = false;
+        return err;
+    }
+    if (s_idle_scanning) return ESP_OK;
+    esp_err_t err = iot_button_stop();
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) return err;
+    err = esp_timer_start_periodic(s_idle_timer, BSP_BTN_IDLE_SCAN_US);
+    if (err == ESP_ERR_INVALID_STATE) err = ESP_OK;
+    if (err == ESP_OK) s_idle_scanning = true;
+    return err;
+}
+
+esp_err_t bsp_button_set_idle_scan(bool idle)
+{
+    if (!s_btn[0]) return ESP_ERR_INVALID_STATE;
+    s_idle_requested = idle;
+    return apply_scan();
+}
 
 esp_err_t bsp_button_init(bsp_btn_cb_t cb, void *user) {
     s_cb = cb; s_user = user;
@@ -87,6 +138,18 @@ esp_err_t bsp_button_init(bsp_btn_cb_t cb, void *user) {
     if (adc_cali_create_scheme_curve_fitting(&cal, &s_cali) != ESP_OK) {
         ESP_LOGW(TAG, "ADC 校准创建失败,Button 页将无法显示电压");
         s_cali = NULL;
+    }
+
+    if (!s_idle_timer) {
+        const esp_timer_create_args_t timer = {
+            .callback = idle_poll,
+            .name = "btn_idle",
+            .skip_unhandled_events = true,
+        };
+        if (esp_timer_create(&timer, &s_idle_timer) != ESP_OK) {
+            ESP_LOGW(TAG, "Idle scan timer unavailable; keeping 20 ms ADC scans");
+            s_idle_timer = NULL;
+        }
     }
 
     ESP_LOGI(TAG, "按键就绪:ADC1_CH%d 三键分压", BSP_BTN_ADC_CHANNEL);

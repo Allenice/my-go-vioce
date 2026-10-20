@@ -20,6 +20,12 @@ esp_lcd_panel_io_handle_t bsp_display_io(void);
 // 背光亮度 0..100(%)。LEDC PWM,0=全灭。
 void bsp_display_backlight(uint8_t percent);
 
+// Blank and sleep the ST7789 (DISPOFF then SLPIN), or wake it (SLPOUT, 120 ms,
+// DISPON). Idempotent. Blocking: sleep-out waits 120 ms, so only the UI worker
+// may call this, never a button callback or the LVGL task, and not while the
+// LVGL lock is held. Does not change the backlight or LVGL pause state.
+esp_err_t bsp_display_set_sleep(bool sleep);
+
 // ---------------------------------------------------------------------------
 // LVGL 接入(可选层)。必须先 bsp_display_init() 成功后再调。
 // 不想用 LVGL 的开发者可忽略本段,直接用 bsp_display_panel() 自己画。
@@ -37,5 +43,5 @@ void bsp_lvgl_unlock(void);
 
 // Pause/resume display refresh, animations and the LVGL tick while off.
 // Caller holds bsp_lvgl_lock(); only the UI worker changes this state.
-// Does not power down the LCD controller or delete any LVGL objects.
+// Does not send ST7789 sleep commands or delete any LVGL objects.
 esp_err_t bsp_lvgl_set_paused(bool paused);

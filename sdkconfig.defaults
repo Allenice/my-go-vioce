@@ -47,6 +47,8 @@ CONFIG_FREERTOS_IDLE_TIME_BEFORE_SLEEP=3
 # Native USB Serial/JTAG cannot survive C3 light sleep. Retain the USB
 # connection while attached; automatic light sleep remains available unplugged.
 CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION=y
+# 20 ms is the lit/recording scan. Screen-off idle uses a 50 ms BSP overlay so
+# long-press ticks stay based on this interval.
 CONFIG_BUTTON_PERIOD_TIME_MS=20
 CONFIG_BUTTON_DEBOUNCE_TICKS=1
 # Faster OK-button long-press recognition for clear-input (min 500ms in button component).

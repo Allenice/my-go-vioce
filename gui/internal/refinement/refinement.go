@@ -107,7 +107,9 @@ const VocabularyRule = "The vocabulary lists names and terms the user says often
 
 // CandidateRule explains the candidates of the prompt: spans whose pinyin
 // matches a vocabulary term.
-const CandidateRule = "candidates lists spans of the dictation whose pinyin matches a vocabulary term (match \"same\": identical pinyin; \"similar\": z/zh, c/ch, s/sh, n/l or -n/-ng confused). They are probably misrecognitions of the term: replace each with its term unless the heard words are clearly what was meant."
+const CandidateRule = "candidates lists spans of the dictation whose pinyin matches a vocabulary term (match \"same\": identical pinyin; \"similar\": z/zh, c/ch, s/sh, n/l or -n/-ng confused). Compare each candidate with the original using the complete dictation. boundary \"word\" covers one segmented word, \"words\" covers adjacent words, and \"partial\" cuts a word and needs strong contextual evidence. Segmentation is a clue, not proof: preserve ordinary words when they fit; unfamiliar names may be split across tokens. Never replace inside a correctly spelled vocabulary term."
+
+const SegmentationRule = "tokens gives local Chinese word segmentation with Unicode character offsets (end exclusive). The dictionary includes the supplied vocabulary, including replacement targets. Custom-word boundaries are hints only, not evidence that a candidate is what the speaker meant."
 
 // KeepRule explains keep: heard words that Jev judged to be what the
 // speaker said, which the vocabulary must not replace.
@@ -121,8 +123,12 @@ const FillerRule = "Then remove fillers that carry no meaning: interjections and
 // Prompt asks the model to edit text in mode against the vocabulary terms;
 // keep are heard words it must not replace with a term.
 func Prompt(text string, terms []string, mode string, keep ...string) string {
-	candidates := slices.DeleteFunc(Candidates(text, terms), func(c Candidate) bool { return slices.Contains(keep, c.Heard) })
+	candidates, tokens := candidateAnalysis(text, terms)
+	candidates = slices.DeleteFunc(candidates, func(c Candidate) bool { return slices.Contains(keep, c.Heard) })
 	fields := map[string]any{"dictation": text, "vocabulary": terms, "mode": mode}
+	if len(tokens) > 0 {
+		fields["tokens"] = tokens
+	}
 	if len(keep) > 0 && len(terms) > 0 {
 		fields["keep"] = keep
 	}
@@ -137,6 +143,9 @@ func Prompt(text string, terms []string, mode string, keep ...string) string {
 	}[mode]
 	if len(terms) > 0 {
 		head := VocabularyRule
+		if len(tokens) > 0 {
+			head += "\n" + SegmentationRule
+		}
 		if len(candidates) > 0 {
 			head += "\n" + CandidateRule
 		}

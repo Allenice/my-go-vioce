@@ -467,6 +467,29 @@ func TestSnapshots(t *testing.T) {
 	}
 }
 
+func TestFirmwarePageShowsVersionsAndUpdate(t *testing.T) {
+	var rec intents
+	v := testView(&rec)
+	v.Page = 4
+	v.Snapshot.Firmware = "0.1.0"
+	v.Snapshot.BundledFirmware = "0.2.0"
+	tt := newTester(v)
+	if !tt.HasText("0.1.0") || !tt.HasText("0.2.0") {
+		t.Fatalf("versions missing: %q", tt.Texts())
+	}
+	if !tt.HasText("设备固件 0.1.0 低于随附 0.2.0，建议安装。") {
+		t.Fatalf("update notice missing: %q", tt.Texts())
+	}
+	if !tt.HasText("更新") {
+		t.Fatalf("sidebar badge missing: %q", tt.Texts())
+	}
+	v.Snapshot.Firmware = "0.2.0"
+	tt = newTester(v)
+	if !tt.HasText("设备已是随附固件 0.2.0。") || tt.HasText("建议安装") {
+		t.Fatalf("current notice: %q", tt.Texts())
+	}
+}
+
 func TestFirmwareErrorShowsCodeAndStage(t *testing.T) {
 	var rec intents
 	v := testView(&rec)

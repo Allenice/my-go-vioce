@@ -30,7 +30,7 @@ public struct Command: Decodable {
   }
   public func pcm() throws -> Data {
     guard let value = payloadBase64, value.count == 856, let data = Data(base64Encoded: value),
-      data.count == 640, data.base64EncodedString() == value, let sequence, sequence < 15000
+      data.count == 640, let sequence, sequence < 15000
     else { throw BridgeError.invalid }
     return data
   }

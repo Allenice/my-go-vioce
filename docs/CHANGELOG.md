@@ -6,6 +6,14 @@
 
 ## Unreleased
 
+- Show the device and bundled firmware versions on the firmware page, with an update reminder and a sidebar badge when the connected device is older than the copy packaged in go-voice. Device firmware is now 0.2.0 so that reminder can distinguish this standby-power build from 0.1.0.
+
+- Extend gojieba to the `go-voice` vocabulary and replacement pipeline. Unique replacement targets fill unused Top 100 contextual slots after ranked terms; the active Chinese words customize the local dictionary for Jev and ordinary refinement. Refine with word-boundary hints even when Jev is off, and protect correctly spelled longer terms. Final correction also matches explicitly configured Chinese sources split by horizontal whitespace, using complete dictionary tokens without crossing punctuation or line breaks. This local correction works with both AI refinement and Jev off; live previews keep literal replacement behavior. Dictionary changes and final correction run on workers with copied vocabulary data.
+
+- Improve `go-voice` Jev vocabulary checks with local gojieba segmentation and complete dictation context. Each occurrence compares all overlapping homophone candidates against keeping the original, applying a replacement or protecting the original only when that choice reaches 70%. Word boundaries are hints, so fragmented unfamiliar names remain candidates. Requests now send the full transcript, segmentation and matching candidates to the selected provider; no audio or unrelated vocabulary is sent. Long requests are skipped without truncating context. Bundle the pinned dictionaries and enable CGO for packaged builds; live model quality remains unverified.
+
+- Cut firmware standby draw: ADC keys slow from 20 ms to 50 ms while the screen is off, the ES8311 microphone path fully closes after five quiet seconds, and the ST7789 enters sleep (DISPOFF/SLPIN) when the backlight is off. A first key after screen-off can take about 50 ms longer, the first talk after codec sleep may include the analog startup transient, and screen wake waits 120 ms for SLPOUT. Measured current savings remain a device check.
+
 - Add an AI Passport hardware introduction and purchase section to the website, with a full-size WeChat Shop image, the official product link, and a purchase shortcut from the app download section. Prices follow the current shop listing.
 
 - Remove the unused standalone Vokie plugin and its package checks. Go Voice continues to use its own native helpers and protocol tests. Add upstream acknowledgements to the README and retain all applicable license notices.

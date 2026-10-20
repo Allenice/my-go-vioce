@@ -6,6 +6,7 @@ import (
 	"unicode"
 
 	"github.com/mozillazg/go-pinyin"
+	"github.com/vfasky/my-ai-audio/gui/internal/segmentation"
 )
 
 // Candidate is a span of the dictation that sounds like a Chinese
@@ -18,6 +19,8 @@ type Candidate struct {
 	// Match is "same" for the same pinyin, "similar" for a sound that only
 	// differs in z/zh, c/ch, s/sh, n/l or a final -n/-ng.
 	Match string `json:"match"`
+	// Boundary is a segmentation hint, never permission to replace a word.
+	Boundary string `json:"boundary,omitempty"`
 }
 
 // maxCandidates bounds the hints of one prompt.
@@ -35,14 +38,31 @@ type Span struct {
 	Start, End int
 }
 
-// Candidates finds the spans of text that sound like a term of the
-// vocabulary, longest terms first. Only terms of two or more Chinese
-// characters are compared; spans that already are a vocabulary term are
-// skipped.
+// Candidates finds spans that sound like a vocabulary term, ranking complete
+// word boundaries first and longer terms first within each boundary class.
+// Only terms of two or more Chinese characters are compared; correctly spelled
+// vocabulary terms, including shorter spans inside them, are protected.
 func Candidates(text string, terms []string) []Candidate {
+	candidates, _ := candidateAnalysis(text, terms)
+	return candidates
+}
+
+func candidateAnalysis(text string, terms []string) ([]Candidate, []segmentation.Token) {
+	spans := Spans(text, terms)
+	var tokens []segmentation.Token
+	if len(terms) > 0 && len([]rune(text)) <= 8000 {
+		tokens, _ = segmentation.Cut(text, terms...)
+	}
+	if len(tokens) > 0 {
+		for i := range spans {
+			spans[i].Boundary = segmentation.Boundary(tokens, spans[i].Start, spans[i].End)
+		}
+		rank := map[string]int{"word": 0, "words": 1, "partial": 2}
+		slices.SortStableFunc(spans, func(a, b Span) int { return rank[a.Boundary] - rank[b.Boundary] })
+	}
 	var out []Candidate
 	seen := map[string]bool{}
-	for _, s := range Spans(text, terms) {
+	for _, s := range spans {
 		if seen[s.Heard+"\x00"+s.Term] {
 			continue
 		}
@@ -52,7 +72,7 @@ func Candidates(text string, terms []string) []Candidate {
 			break
 		}
 	}
-	return out
+	return out, tokens
 }
 
 // Spans is Candidates at every place they occur, so that each can be
@@ -60,10 +80,21 @@ func Candidates(text string, terms []string) []Candidate {
 func Spans(text string, terms []string) []Span {
 	runes := []rune(text)
 	known := map[string]bool{}
+	protected := make([]bool, len(runes))
 	var han []string
 	for _, t := range terms {
 		t = strings.TrimSpace(t)
 		known[t] = true
+		tr := []rune(t)
+		if len(tr) >= 2 {
+			for start := 0; start+len(tr) <= len(runes); start++ {
+				if slices.Equal(runes[start:start+len(tr)], tr) {
+					for j := start; j < start+len(tr); j++ {
+						protected[j] = true
+					}
+				}
+			}
+		}
 		if r := []rune(t); len(r) >= 2 && allHan(r) && !slices.Contains(han, t) {
 			han = append(han, t)
 		}
@@ -88,7 +119,7 @@ func Spans(text string, terms []string) []Span {
 		}
 		for i := 0; i+len(tr) <= len(runes); i++ {
 			span := string(runes[i : i+len(tr)])
-			if known[span] {
+			if known[span] || slices.Contains(protected[i:i+len(tr)], true) {
 				continue
 			}
 			match := soundMatch(readings[i:i+len(tr)], termReadings)

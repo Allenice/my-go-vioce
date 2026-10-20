@@ -34,16 +34,49 @@ type Event struct {
 	Payload           []byte `json:"-"`
 }
 
-func Parse(line []byte) (Event, error) {
+func decodeEvent(line []byte) (Event, error) {
 	var e Event
-	m, err := protocol.Object(line, MaxLine)
-	if err != nil {
-		return e, err
-	}
 	d := json.NewDecoder(bytes.NewReader(line))
 	d.DisallowUnknownFields()
 	if d.Decode(&e) != nil {
-		return e, protocol.ErrInvalid
+		return Event{}, protocol.ErrInvalid
+	}
+	return e, nil
+}
+
+func parseAudio(e Event) (Event, error) {
+	if e.Type != "audio" || e.Sequence >= protocol.MaxFrames {
+		return Event{}, protocol.ErrInvalid
+	}
+	if e.DeviceID != "" || e.DeviceName != "" || e.PreferredDeviceID != "" || e.Message != "" || e.Text != "" || e.Permission != "" || e.State != "" {
+		return Event{}, protocol.ErrInvalid
+	}
+	const frame = 166
+	if len(e.PayloadBase64) > base64.StdEncoding.EncodedLen(frame) || e.PayloadBase64 == "" {
+		return Event{}, protocol.ErrInvalid
+	}
+	b, err := base64.StdEncoding.Strict().DecodeString(e.PayloadBase64)
+	if err != nil || len(b) != frame {
+		return Event{}, protocol.ErrInvalid
+	}
+	e.Payload = b
+	return e, nil
+}
+
+func Parse(line []byte) (Event, error) {
+	e, err := decodeEvent(line)
+	if err != nil {
+		return Event{}, err
+	}
+	if e.Type == "audio" {
+		if !bytes.Contains(line, []byte(`"sessionId"`)) || !bytes.Contains(line, []byte(`"sequence"`)) {
+			return Event{}, protocol.ErrInvalid
+		}
+		return parseAudio(e)
+	}
+	m, err := protocol.Object(line, MaxLine)
+	if err != nil {
+		return Event{}, err
 	}
 	if len(e.DeviceID) > 256 || len(e.DeviceName) > 256 || len(e.PreferredDeviceID) > 256 || len(e.Message) > 128 || len(e.Text) > 12000 {
 		return e, protocol.ErrInvalid
@@ -52,22 +85,13 @@ func Parse(line []byte) (Event, error) {
 		return e, protocol.ErrInvalid
 	}
 	switch e.Type {
-	case "control", "audio":
+	case "control":
 		limit := 182
-		if e.Type == "audio" {
-			limit = 166
-			if _, ok := m["sessionId"]; !ok {
-				return e, protocol.ErrInvalid
-			}
-			if _, ok := m["sequence"]; !ok || e.Sequence >= protocol.MaxFrames {
-				return e, protocol.ErrInvalid
-			}
-		}
 		if len(e.PayloadBase64) > base64.StdEncoding.EncodedLen(limit) || e.PayloadBase64 == "" {
 			return e, protocol.ErrInvalid
 		}
 		b, err := base64.StdEncoding.Strict().DecodeString(e.PayloadBase64)
-		if err != nil || len(b) > limit || base64.StdEncoding.EncodeToString(b) != e.PayloadBase64 || e.Type == "audio" && len(b) != 166 {
+		if err != nil || len(b) > limit || base64.StdEncoding.EncodeToString(b) != e.PayloadBase64 {
 			return e, protocol.ErrInvalid
 		}
 		e.Payload = b
@@ -148,14 +172,23 @@ func (p *Process) Send(v any) error {
 	if e != nil || len(b) > MaxLine {
 		return protocol.ErrInvalid
 	}
-	b = append(b, '\n')
+	return p.SendLine(append(b, '\n'))
+}
+
+// SendLine queues an already framed NDJSON line, including the trailing newline.
+// The caller must not reuse the backing array.
+func (p *Process) SendLine(line []byte) error {
+	n := len(line)
+	if n < 2 || n > MaxLine+1 || line[n-1] != '\n' {
+		return protocol.ErrInvalid
+	}
 	select {
 	case <-p.done:
 		return errors.New("native process stopped")
 	default:
 	}
 	select {
-	case p.send <- b:
+	case p.send <- line:
 		return nil
 	default:
 		return errors.New("native pipe backpressure")

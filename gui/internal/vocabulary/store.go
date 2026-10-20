@@ -88,28 +88,24 @@ func (s *Store) Delete(term string, ai bool) error {
 	return nil
 }
 func (s *Store) Top(n int) []string {
-	n = max(0, min(n, 100))
-	terms := append([]Term(nil), s.Terms...)
-	sort.SliceStable(terms, func(i, j int) bool {
-		if terms[i].Locked != terms[j].Locked {
-			return terms[i].Locked
-		}
-		return terms[i].Weight > terms[j].Weight
-	})
-	out := []string{}
-	for _, t := range terms {
-		if len(out) >= n {
-			break
-		}
-		out = append(out, t.Term)
+	n = max(0, min(n, 100, len(s.Terms)))
+	if n == 0 {
+		return nil
 	}
-	now := time.Now()
-	for i := range s.Terms {
-		for _, t := range out {
-			if t == s.Terms[i].Term {
-				s.Terms[i].LastUsedAt = now
-			}
+	idx := make([]int, len(s.Terms))
+	for i := range idx {
+		idx[i] = i
+	}
+	sort.SliceStable(idx, func(i, j int) bool {
+		a, b := &s.Terms[idx[i]], &s.Terms[idx[j]]
+		if a.Locked != b.Locked {
+			return a.Locked
 		}
+		return a.Weight > b.Weight
+	})
+	out := make([]string, n)
+	for i := 0; i < n; i++ {
+		out[i] = s.Terms[idx[i]].Term
 	}
 	return out
 }

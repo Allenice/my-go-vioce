@@ -1,8 +1,11 @@
 #include "ui_status.h"
 
 #include "bsp_battery.h"
+#include "bsp_button.h"
 #include "bsp_display.h"
 #include "bsp_pins.h"
+#include "button_scan.h"
+#include "esp_err.h"
 #include "esp_timer.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -271,8 +274,11 @@ static void status_task(void *arg)
         const uint8_t brightness = ui_idle_brightness(&state, now_us);
         const ui_status_hint_t hints = ui_idle_hints(&state, now_us);
         bool retry = false;
-        if (bsp_lvgl_lock(100)) {
-            if (brightness) {
+        if (brightness) {
+            // SLPOUT waits 120 ms. Do not hold the LVGL lock across it.
+            if (bsp_display_set_sleep(false) != ESP_OK) {
+                retry = true;
+            } else if (bsp_lvgl_lock(100)) {
                 set_backlight(brightness);
                 ESP_ERROR_CHECK(bsp_lvgl_set_paused(false));
                 if (state.revision != rendered_revision || hints != rendered_hints) {
@@ -280,14 +286,21 @@ static void status_task(void *arg)
                     rendered_revision = state.revision;
                     rendered_hints = hints;
                 }
+                bsp_lvgl_unlock();
             } else {
-                ESP_ERROR_CHECK(bsp_lvgl_set_paused(true));
-                set_backlight(0);
+                retry = true;
             }
+        } else if (bsp_lvgl_lock(100)) {
+            ESP_ERROR_CHECK(bsp_lvgl_set_paused(true));
+            set_backlight(0);
             bsp_lvgl_unlock();
+            if (bsp_display_set_sleep(true) != ESP_OK) retry = true;
         } else {
             retry = true;
         }
+        const bool idle_scan = button_scan_idle(brightness == 0, ui_idle_active(&state));
+        const esp_err_t scan_err = bsp_button_set_idle_scan(idle_scan);
+        if (scan_err != ESP_OK && scan_err != ESP_ERR_INVALID_STATE) retry = true;
 
         if (now_us >= next_battery_us) {
             // I2C stays outside the LVGL lock. Sampling while off does not

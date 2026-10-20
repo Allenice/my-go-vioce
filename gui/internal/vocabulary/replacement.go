@@ -92,6 +92,16 @@ const maxPasses = 8
 // or ends with an ASCII letter or digit only matches a whole word, so that
 // "go" leaves "google" alone.
 func (s *Store) Correct(text string) string {
+	return s.correct(text, false)
+}
+
+// CorrectSegmented also recognizes Chinese rule sources separated by horizontal
+// whitespace, at complete word boundaries. Call on a worker: it may load Jieba.
+func (s *Store) CorrectSegmented(text string) string {
+	return s.correct(text, true)
+}
+
+func (s *Store) correct(text string, segmented bool) string {
 	if len(s.Replacements) == 0 {
 		return text
 	}
@@ -107,6 +117,9 @@ func (s *Store) Correct(text string) string {
 	written := make([]bool, len(text)) // bytes a replacement wrote
 	for range maxPasses {
 		next, nextWritten := correctOnce(text, written, byFirst)
+		if segmented && s.NeedsSegmentation(next) {
+			next, nextWritten = s.correctSpaced(next, nextWritten, byFirst)
+		}
 		if next == text {
 			break
 		}
@@ -126,7 +139,7 @@ func correctOnce(text string, written []bool, byFirst map[rune][]Replacement) (s
 		replaced := false
 		for _, r := range byFirst[unicode.ToLower(c)] {
 			end := i + len(r.From)
-			if end > len(text) || !strings.EqualFold(text[i:end], r.From) || !wordEdge(text, i, end, r.From) || !slices.Contains(written[i:end], false) {
+			if end > len(text) || !strings.EqualFold(text[i:end], r.From) || !wordEdge(text, i, end, r.From) || selfExpansion(text, i, r) || !slices.Contains(written[i:end], false) {
 				continue
 			}
 			b.WriteString(r.To)
@@ -143,6 +156,28 @@ func correctOnce(text string, written []bool, byFirst map[rune][]Replacement) (s
 		}
 	}
 	return b.String(), out
+}
+
+// selfExpansion recognizes a rule's own longer target around its source. Live
+// correction and final correction run separately, so byte ownership alone cannot
+// stop an already correct "Go Voice" expanding again under go -> Go Voice.
+// This affects only this rule; an explicitly configured rule for the target can
+// still match it, and cycles between different words retain their old behavior.
+func selfExpansion(text string, start int, rule Replacement) bool {
+	if len(rule.To) <= len(rule.From) {
+		return false
+	}
+	for offset := range rule.To {
+		end := offset + len(rule.From)
+		if end > len(rule.To) || !strings.EqualFold(rule.To[offset:end], rule.From) {
+			continue
+		}
+		from, to := start-offset, start-offset+len(rule.To)
+		if from >= 0 && to <= len(text) && strings.EqualFold(text[from:to], rule.To) && wordEdge(text, from, to, rule.To) {
+			return true
+		}
+	}
+	return false
 }
 
 // wordEdge reports whether text[start:end], a match of from, does not cut

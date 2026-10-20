@@ -28,6 +28,19 @@ class GoVoiceContractTests(unittest.TestCase):
                 self.assertNotIn('7f0e000', path.read_text(), str(path))
         self.assertIn('DEVICE_NAME = "Go Voice"', firmware)
 
+    def test_firmware_version_is_single_source(self):
+        header = (ROOT / 'main/fw_version.h').read_text()
+        version = re.search(r'^#define GO_VOICE_FW_VERSION "(\d+\.\d+\.\d+)"$', header, re.M).group(1)
+        firmware = (ROOT / 'main/vokie_ble.c').read_text()
+        self.assertIn('GO_VOICE_FW_VERSION', firmware)
+        self.assertNotRegex(firmware, r'"fw":"\d')
+        needle = f'"fw":"{version}"'
+        for path in (
+            ROOT / 'docs/ai-passport-ble-protocol.md',
+            ROOT / 'docs/ai-passport-ble-protocol.zh_CN.md',
+        ):
+            self.assertIn(needle, path.read_text(), str(path))
+
     def test_logo_storage_and_wiring(self):
         asset = (ROOT / 'assets/brand/go_voice_logo_asset.h').read_text()
         data = asset.split('s_go_voice_logo_data[8192] = {', 1)[1]

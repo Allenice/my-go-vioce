@@ -17,6 +17,7 @@ go test ./...
 go vet ./...
 ./scripts/build.sh
 app=build/debug/darwin-arm64/go-voice-debug.app
+GOVOICE_JIEBA_TEST_DIR="$PWD/$app/Contents/Resources/jieba" go test -count=1 ./internal/segmentation -run TestPackagedDictionaries
 "$bun_bin" scripts/verify-packaged-firmware.mjs "$app/Contents/Resources"
 for helper in BluetoothHelper SpeechBridge FirmwareHelper; do
   bundle="$app/Contents/Resources/native/$helper.app"

@@ -24,7 +24,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -71,7 +74,20 @@ type application struct {
 	// atLogin: the system started go-voice at login, so it stays in the
 	// menu bar unless the onboarding needs the window.
 	atLogin bool
+	// live is set on the UI thread when a session is active, so the tick
+	// goroutine can skip posting while idle.
+	live   atomic.Bool
+	inPost bool
+	paint  paintKind
 }
+
+type paintKind uint8
+
+const (
+	paintView paintKind = 1 << iota
+	paintSession
+	paintCatalog
+)
 
 // Run starts the app; icon is the packaged PNG app icon shown in the sidebar
 // and tray the menu-bar template icon.
@@ -208,10 +224,16 @@ func (a *application) setLoginItem(open bool) {
 // allowing a login item that waited for approval.
 func (a *application) readLoginItem() {
 	s := &a.view.Snapshot
-	s.OpenAtLogin = openAtLogin()
+	open := openAtLogin()
+	changed := s.OpenAtLogin != open
+	s.OpenAtLogin = open
 	if s.LoginApproval && s.OpenAtLogin {
 		s.LoginApproval = false
 		s.LoginFeedback, s.LoginFeedbackOK = loginMessage(true, nil)
+		changed = true
+	}
+	if changed {
+		a.mark(paintView)
 	}
 }
 
@@ -275,9 +297,29 @@ func (a *application) post(fn func()) {
 		if a.quitting {
 			return
 		}
+		a.inPost = true
 		fn()
-		a.refresh()
+		a.inPost = false
+		a.flush()
 	})
+}
+func (a *application) mark(p paintKind) { a.paint |= p }
+func (a *application) flush() {
+	if a.paint == 0 {
+		return
+	}
+	if a.paint&paintCatalog != 0 {
+		a.syncCatalog()
+		a.paint |= paintSession | paintView
+	}
+	if a.paint&paintSession != 0 {
+		a.syncSession()
+		a.paint |= paintView
+	}
+	if a.paint&paintView != 0 {
+		a.present()
+	}
+	a.paint = 0
 }
 func (a *application) initialize() {
 	a.installState = firmware.Initial()
@@ -321,6 +363,8 @@ func (a *application) initialize() {
 			a.config.Peripheral = id
 			a.saveSettings()
 			a.sendBluetooth(map[string]any{"type": "set-preferred-device", "deviceId": id})
+			a.mark(paintSession)
+			a.flush()
 		},
 		Forget: func() {
 			a.effects(a.coordinator.Disconnect())
@@ -329,6 +373,8 @@ func (a *application) initialize() {
 			a.hello = nil
 			a.saveSettings()
 			a.sendBluetooth(map[string]any{"type": "set-preferred-device", "deviceId": nil})
+			a.mark(paintSession)
+			a.flush()
 		},
 		Cancel: func() { a.effects(a.coordinator.Cancel("已取消")) },
 		Commit: func() {
@@ -463,6 +509,7 @@ func (a *application) initialize() {
 func (a *application) setFeedback(c refinement.Config, msg string, ok bool) {
 	s := &a.view.Snapshot
 	s.Feedback, s.FeedbackOK, s.FeedbackFor = msg, ok, c
+	a.mark(paintView)
 }
 
 // settingsMessage tells how saving the refinement settings c ended: the
@@ -567,6 +614,19 @@ func (a *application) saveVocabulary() {
 	}
 }
 func (a *application) refresh() {
+	a.paint = paintCatalog | paintSession | paintView
+	a.flush()
+}
+func (a *application) syncCatalog() {
+	s := &a.view.Snapshot
+	s.Terms = append([]vocabulary.Term(nil), a.store.Terms...)
+	s.Replacements = append([]vocabulary.Replacement(nil), a.store.Replacements...)
+	s.Permissions = make(permission.Set, len(a.permissions))
+	for n, st := range a.permissions {
+		s.Permissions[n] = st
+	}
+}
+func (a *application) syncSession() {
 	s := &a.view.Snapshot
 	s.Install = a.installState
 	s.SpeechActive = a.coordinator.Active
@@ -578,21 +638,22 @@ func (a *application) refresh() {
 	s.Partial = c.Partial
 	s.Original = c.Original
 	s.Refined = c.Refined
-	s.Terms = append([]vocabulary.Term(nil), a.store.Terms...)
-	s.Replacements = append([]vocabulary.Replacement(nil), a.store.Replacements...)
 	s.Config = a.config.Refinement
 	s.ASR = a.config.ASR
 	s.Jev = a.config.Jev
 	s.CanCommit = c.CanCommit()
-	s.Permissions = make(permission.Set, len(a.permissions))
-	for n, st := range a.permissions {
-		s.Permissions[n] = st
-	}
 	if c.Status != "" {
 		s.Status = c.Status
 	}
-	if a.window != nil {
-		a.window.Invalidate()
+	a.live.Store(c.Active)
+}
+func (a *application) present() {
+	if a.window != nil && a.window.IsVisible() {
+		// A live dictation capsule does not need to rebuild hidden settings pages.
+		sessionOnly := a.paint&paintCatalog == 0 && a.hudShown && a.view.Page != 0
+		if !sessionOnly {
+			a.window.Invalidate()
+		}
 	}
 	a.syncHUD()
 }
@@ -622,7 +683,15 @@ func (a *application) syncHUD() {
 		a.bindEscape(false)
 		if a.hudUntil.IsZero() {
 			a.hudUntil = time.Now().Add(hudLinger)
-			time.AfterFunc(hudLinger+50*time.Millisecond, func() { a.post(func() {}) })
+			deadline := a.hudUntil
+			time.AfterFunc(hudLinger+50*time.Millisecond, func() {
+				a.post(func() {
+					if !a.hudShown || a.hudUntil.IsZero() || a.hudUntil != deadline || time.Now().Before(a.hudUntil) {
+						return
+					}
+					a.hideHUD()
+				})
+			})
 		} else if time.Now().After(a.hudUntil) {
 			a.hideHUD()
 		}
@@ -702,7 +771,18 @@ func (a *application) startNative() {
 			case <-a.ctx.Done():
 				return
 			case now := <-ticker.C:
-				a.post(func() { a.effects(a.coordinator.Tick(now)) })
+				if !a.live.Load() {
+					continue
+				}
+				a.post(func() {
+					if !a.coordinator.Active {
+						a.live.Store(false)
+						return
+					}
+					if e := a.coordinator.Tick(now); len(e) > 0 {
+						a.effects(e)
+					}
+				})
 			}
 		}
 	}()
@@ -713,68 +793,112 @@ func (a *application) startInstaller() {
 		return
 	}
 	a.installPaths = firmware.BundlePaths(exe)
+	a.view.Snapshot.BundledFirmware = firmware.ReadVersion(a.installPaths.Manifest)
 	p, err := firmware.Start(a.ctx, a.installPaths.Helper)
 	if err != nil {
 		return
 	}
 	a.installer = p
-	// At most one installer update may be queued on the native main thread.
-	pending := make(chan struct{}, 1)
-	started := time.Now()
-	go func() {
-		ticker := time.NewTicker(100 * time.Millisecond)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-a.ctx.Done():
-				return
-			case <-ticker.C:
-				select {
-				case pending <- struct{}{}:
-				default:
-					continue
-				}
-				a.post(func() {
-					defer func() { <-pending }()
-					if a.installer != p {
-						return
-					}
-					select {
-					case <-p.Done():
-						a.installState.Unavailable()
-						a.installer = nil
-						return
-					default:
-					}
-					for i := 0; i < 64; i++ {
-						select {
-						case event := <-p.Events():
-							if a.installState.Apply(event) {
-								a.view.Snapshot.Devices = nil
-								a.sendBluetooth(map[string]any{"type": "scan"})
-							}
-						default:
-							if !a.installState.HelperReady && a.installState.Phase == "unavailable" && time.Since(started) > 10*time.Second {
-								p.Close()
-								a.installer = nil
-							}
-							return
-						}
-					}
-				})
+	go a.watchInstaller(p)
+}
+
+func (a *application) watchInstaller(p *firmware.Process) {
+	timer := time.NewTimer(10 * time.Second)
+	defer timer.Stop()
+	timeout := timer.C
+	var mu sync.Mutex
+	var queued []firmware.Event
+	scheduled := false
+	apply := func() {
+		mu.Lock()
+		batch := queued
+		queued = nil
+		scheduled = false
+		mu.Unlock()
+		if a.installer != p {
+			return
+		}
+		for _, event := range batch {
+			if a.installState.Apply(event) {
+				a.view.Snapshot.Devices = nil
+				a.sendBluetooth(map[string]any{"type": "scan"})
 			}
 		}
-	}()
+		a.mark(paintSession)
+	}
+	enqueue := func(e firmware.Event) {
+		mu.Lock()
+		queued = append(queued, e)
+		if scheduled {
+			mu.Unlock()
+			return
+		}
+		scheduled = true
+		mu.Unlock()
+		a.post(apply)
+	}
+	stopTimeout := func() {
+		if timeout == nil {
+			return
+		}
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		timeout = nil
+	}
+	for {
+		select {
+		case <-a.ctx.Done():
+			return
+		case <-p.Done():
+			for {
+				select {
+				case e := <-p.Events():
+					enqueue(e)
+				default:
+					a.post(func() {
+						if a.installer != p {
+							return
+						}
+						a.installState.Unavailable()
+						a.installer = nil
+						a.mark(paintSession)
+					})
+					return
+				}
+			}
+		case e := <-p.Events():
+			stopTimeout()
+			enqueue(e)
+		case <-timeout:
+			timeout = nil
+			a.post(func() {
+				if a.installer != p {
+					return
+				}
+				if !a.installState.HelperReady && a.installState.Phase == "unavailable" {
+					p.Close()
+					a.installer = nil
+					a.mark(paintSession)
+				}
+			})
+		}
+	}
 }
 func (a *application) sendInstaller(r firmware.Request) {
 	if a.installer == nil {
 		a.installState.Unavailable()
+		a.mark(paintSession)
 		return
 	}
 	if err := a.installer.Send(r); err != nil {
 		a.installer.Close()
 		a.installer = nil
 		a.installState.Unavailable()
+		a.mark(paintSession)
 	}
 }
 func (a *application) installFirmware() {
@@ -799,6 +923,10 @@ func (a *application) sendBluetooth(v any) {
 			a.bluetooth = nil
 			a.effects(a.coordinator.Disconnect())
 			a.view.Snapshot.Status = "Bluetooth pipe unavailable"
+			a.mark(paintView)
+			if !a.inPost {
+				a.flush()
+			}
 		}
 	}
 }
@@ -809,6 +937,10 @@ func (a *application) sendSpeech(v any) {
 			a.speech = nil
 			a.effects(a.coordinator.Cancel("Speech pipe unavailable"))
 			a.view.Snapshot.Status = "Speech pipe unavailable"
+			a.mark(paintView)
+			if !a.inPost {
+				a.flush()
+			}
 		}
 	}
 }
@@ -836,6 +968,7 @@ func (a *application) onPermission(e bridge.Event) {
 		return
 	}
 	a.permissions[n] = st
+	a.mark(paintCatalog)
 	// Online recognition does not need the Speech grant.
 	if n == permission.Speech && st != permission.Granted && a.coordinator.Active && a.online == nil {
 		a.effects(a.coordinator.Cancel("语音识别未授权：请到“权限”页授权后重试"))
@@ -875,9 +1008,11 @@ func (a *application) onBluetooth(e bridge.Event) {
 		}
 		if len(a.view.Snapshot.Devices) < 64 {
 			a.view.Snapshot.Devices = append(a.view.Snapshot.Devices, appui.Device{ID: e.DeviceID, Name: e.DeviceName})
+			a.mark(paintView)
 		}
 	case "connected":
 		a.view.Snapshot.Connection = "Connected; ATT payload ≥182 B"
+		a.mark(paintView)
 	case "subscribed":
 		a.subscribed = true
 		if a.hello != nil {
@@ -892,6 +1027,7 @@ func (a *application) onBluetooth(e bridge.Event) {
 		if v.Type == "hello" {
 			a.hello = &v
 			a.view.Snapshot.Firmware = v.Firmware
+			a.mark(paintView)
 			if !a.subscribed {
 				return
 			}
@@ -903,6 +1039,7 @@ func (a *application) onBluetooth(e bridge.Event) {
 		a.subscribed = false
 		a.hello = nil
 		a.view.Snapshot.Connection = "Disconnected"
+		a.mark(paintView)
 		a.effects(a.coordinator.Disconnect())
 	}
 }
@@ -913,6 +1050,7 @@ func (a *application) onSpeech(e bridge.Event) {
 	}
 	if e.Type == "model" {
 		a.view.Snapshot.Model = e.Message
+		a.mark(paintView)
 		return
 	}
 	if e.Type == "disconnected" {
@@ -988,6 +1126,7 @@ func (a *application) exportVocabulary() {
 
 func (a *application) setVocabFeedback(msg string, ok bool) {
 	a.view.Snapshot.VocabFeedback, a.view.Snapshot.VocabFeedbackOK = msg, ok
+	a.mark(paintView)
 }
 
 // importMessage tells what an import added, updated and skipped.
@@ -1036,8 +1175,7 @@ func (a *application) effects(effects []device.Effect) {
 		case "host_state":
 			a.sendBluetooth(map[string]any{"type": "host_state", "state": e.State})
 		case "start":
-			a.terms = a.store.Top(100)
-			a.saveVocabulary()
+			a.terms = a.store.Contextual(100)
 			if a.config.ASR.Online() {
 				a.startOnline(e.ID)
 			} else {
@@ -1047,7 +1185,7 @@ func (a *application) effects(effects []device.Effect) {
 			if a.online != nil && a.onlineID == e.ID {
 				a.online.PCM(e.PCM)
 			} else {
-				a.sendSpeech(map[string]any{"type": "pcm", "sessionId": e.ID, "sequence": e.Sequence, "payloadBase64": base64.StdEncoding.EncodeToString(e.PCM)})
+				a.sendLocalPCM(e.ID, e.Sequence, e.PCM)
 			}
 		case "finish":
 			if a.online != nil && a.onlineID == e.ID {
@@ -1073,10 +1211,37 @@ func (a *application) effects(effects []device.Effect) {
 			a.sendSpeech(map[string]any{"type": e.Type, "sessionId": e.ID, "text": e.Text})
 		}
 	}
-	a.refresh()
+	a.live.Store(a.coordinator.Active)
+	a.mark(paintSession)
+	if !a.inPost {
+		a.flush()
+	}
+}
+
+func encodePCM(id, seq uint32, pcm []byte) []byte {
+	b := make([]byte, 0, 64+base64.StdEncoding.EncodedLen(len(pcm)))
+	b = append(b, `{"type":"pcm","sessionId":`...)
+	b = strconv.AppendUint(b, uint64(id), 10)
+	b = append(b, `,"sequence":`...)
+	b = strconv.AppendUint(b, uint64(seq), 10)
+	b = append(b, `,"payloadBase64":"`...)
+	b = base64.StdEncoding.AppendEncode(b, pcm)
+	return append(b, '"', '}', '\n')
+}
+
+func (a *application) sendLocalPCM(id, seq uint32, pcm []byte) {
+	if a.speech == nil {
+		return
+	}
+	if e := a.speech.SendLine(encodePCM(id, seq, pcm)); e != nil {
+		a.speech.Close()
+		a.speech = nil
+		a.effects(a.coordinator.Cancel("Speech pipe unavailable"))
+		a.view.Snapshot.Status = "Speech pipe unavailable"
+	}
 }
 func (a *application) refine(e device.Effect) {
-	if a.config.Refinement.Mode == "off" && !a.config.Jev.Enabled {
+	if a.config.Refinement.Mode == "off" && !a.config.Jev.Enabled && !a.store.NeedsSegmentation(e.Text) {
 		// No refinement: insert the recognized text, with the vocabulary's
 		// replacements, at once.
 		a.view.Snapshot.Status = "disabled"
@@ -1091,17 +1256,25 @@ func (a *application) refine(e device.Effect) {
 	terms := append([]string(nil), a.terms...)
 	speech := a.speech
 	judge := a.config.Jev
+	corrections := a.store.Snapshot()
 	go func() {
+		prepared := e.Text
+		if corrections.NeedsSegmentation(prepared) {
+			prepared = corrections.CorrectSegmented(prepared)
+		}
 		// Jev judges the spans that sound like a term first; refinement
 		// then leaves the ones it kept and decides the uncertain.
-		text, keep, note := judgeVocabulary(ctx, judge, e.Text, terms)
+		text, keep, note := judgeVocabulary(ctx, judge, prepared, terms)
 		if cfg.Mode == "off" {
+			if text != prepared {
+				text = corrections.CorrectSegmented(text)
+			}
 			a.post(func() {
 				if ctx.Err() != nil {
 					return
 				}
 				a.view.Snapshot.Status = note + "disabled"
-				a.effects(a.coordinator.Speech("refinement_done", e.ID, a.store.Correct(text), time.Now()))
+				a.effects(a.coordinator.Speech("refinement_done", e.ID, text, time.Now()))
 			})
 			return
 		}
@@ -1119,13 +1292,13 @@ func (a *application) refine(e device.Effect) {
 				return result, nil
 			}
 		}, keep...)
+		// Native segmentation and correction stay on this worker.
+		out = corrections.CorrectSegmented(out)
 		a.post(func() {
 			if ctx.Err() != nil {
 				return
 			}
 			a.view.Snapshot.Status = note + status
-			// The model must not bring a misrecognition back.
-			out = a.store.Correct(out)
 			a.effects(a.coordinator.Speech("refinement_done", e.ID, out, time.Now()))
 		})
 	}()
@@ -1188,6 +1361,7 @@ func (a *application) onOnline(id uint32, e asr.Event) {
 func (a *application) setASRFeedback(c asr.Config, msg string, ok bool) {
 	s := &a.view.Snapshot
 	s.ASRFeedback, s.ASRFeedbackOK, s.ASRFeedbackFor = msg, ok, c
+	a.mark(paintView)
 }
 
 // configureASR saves the recognition engine, and a typed key to the
@@ -1339,6 +1513,7 @@ var checkVocabulary = func(ctx context.Context, c jev.Config, text string, terms
 func (a *application) setJevFeedback(c jev.Config, msg string, ok bool) {
 	s := &a.view.Snapshot
 	s.JevFeedback, s.JevFeedbackOK, s.JevFeedbackFor = msg, ok, c
+	a.mark(paintView)
 }
 
 // configureJev saves the vocabulary check, and a typed key to the keychain
@@ -1439,7 +1614,7 @@ func jevTestMessage(res jev.TestResult, err error) (string, bool) {
 		switch {
 		case d.P >= jev.Replace:
 			verdict = "替换为“" + d.Term + "”"
-		case d.P <= jev.Keep:
+		case d.OriginalP >= jev.Replace:
 			verdict = "保留原文"
 		}
 		from, to := max(0, d.Start-2), min(len(text), d.End+2)

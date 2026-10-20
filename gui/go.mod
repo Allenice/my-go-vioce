@@ -6,6 +6,7 @@ require (
 	github.com/ebitengine/purego v0.11.1
 	github.com/egoist/mygo v0.5.5
 	github.com/mozillazg/go-pinyin v0.21.0
+	github.com/yanyiwu/gojieba v1.4.7
 )
 
 require (

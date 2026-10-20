@@ -161,6 +161,8 @@ pub struct Manifest {
     pub partition_table_size: u32,
     pub partitions: Vec<Partition>,
     pub recovery_marker: String,
+    #[serde(default)]
+    pub firmware_version: String,
 }
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
