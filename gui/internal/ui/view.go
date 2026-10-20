@@ -775,7 +775,7 @@ func sourceLabel(s string) string {
 }
 
 // recognition is the page of the speech recognition engine: Apple's local
-// SpeechAnalyzer, or an online Alipay MaaS realtime model.
+// SpeechAnalyzer, or an online recognition provider.
 func (v *View) recognition(c *ui.Context) {
 	group(c, "asr-engine", "识别引擎", nil, func() {
 		row(c, "asr-engine", func() {
@@ -791,10 +791,18 @@ func (v *View) recognition(c *ui.Context) {
 		if !v.ASR.Streaming() {
 			when = "在松开按键后整段"
 		}
-		notice(c, "asr-online", "在线识别：每次语音的音频会"+when+"发送到支付宝 MaaS（"+asr.Host+"）转写，不发送词库，也不在本机保存音频。连接失败时本次语音结束，不会自动改用本地识别。", true)
-		group(c, "asr-key", "支付宝 MaaS", nil, func() {
+		notice(c, "asr-online", "在线识别：每次语音的音频会"+when+"发送到"+v.ASR.Provider()+"（"+v.ASR.Host()+"）转写，不发送词库，也不在本机保存音频。连接失败时本次语音结束，不会自动改用本地识别。", true)
+		group(c, "asr-key", v.ASR.Provider(), nil, func() {
+			if v.ASR.Engine == asr.EngineOmni {
+				field(c, "WebSocket 端点", func() {
+					ui.TextInput(c, &v.ASR.Endpoint).Placeholder(asr.DefaultOmniEndpoint).Grow(1).Label("WebSocket 端点")
+				})
+				field(c, "模型", func() {
+					ui.TextInput(c, &v.ASR.Model).Placeholder("qwen3-omni-flash-realtime").Grow(1).Label("识别模型")
+				})
+			}
 			field(c, "API key", func() {
-				ui.TextInput(c, &v.asrSecret).Password().Placeholder("仅保存到 macOS 钥匙串").Grow(1).Label("支付宝 MaaS API key")
+				ui.TextInput(c, &v.asrSecret).Password().Placeholder("仅保存到 macOS 钥匙串").Grow(1).Label(v.ASR.Provider() + " API key")
 			})
 		})
 	}
@@ -811,7 +819,7 @@ func (v *View) recognition(c *ui.Context) {
 			v.asrSecret = ""
 		}
 	})
-	if s.ASRFeedback != "" && !s.ASRTesting && s.ASRFeedbackFor == v.ASR {
+	if s.ASRFeedback != "" && !s.ASRTesting && s.ASRFeedbackFor == asr.Normalize(v.ASR) {
 		feedback(c, s.ASRFeedback, s.ASRFeedbackOK)
 	}
 }
@@ -843,6 +851,9 @@ func (v *View) asrSelect(c *ui.Context) {
 	if sel.Trigger.Changed() {
 		for _, ch := range asr.Choices {
 			if ch.ID == id {
+				if ch.Config.Engine != v.ASR.Engine {
+					v.asrSecret = ""
+				}
 				v.ASR = ch.Config
 			}
 		}
@@ -852,6 +863,8 @@ func (v *View) asrSelect(c *ui.Context) {
 // asrHelp says what the chosen engine does with the audio.
 func asrHelp(c asr.Config) string {
 	switch {
+	case c.Engine == asr.EngineOmni:
+		return "WebSocket 实时上传音频，松开按键后提交并等待最终转写；只识别你说的话，不生成对话回答。"
 	case c.Streaming():
 		return "在线流式识别：边说边出字，松开按键后返回最终结果。"
 	case c.Online():

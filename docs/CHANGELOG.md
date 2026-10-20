@@ -6,6 +6,13 @@
 
 ## Unreleased
 
+- Add a root `package.json` with `bun run dev` to launch the existing signed debug watch session: Go source and configuration changes rebuild and restart the app, and Ctrl+C stops the session. No JavaScript dependencies are required.
+
+- Add Alibaba Cloud Omni Realtime WebSocket dictation to `go-voice`, with configurable WSS endpoint and model, provider/endpoint-specific Keychain credentials, input transcription previews and manual submission on key release. Consume input transcription only, without generating assistant replies; connection testing sends silence and failures do not switch engines.
+- Build local macOS apps as `go-voice-debug.app` with bundle identifier `yz.sh.mygo-go-voice.debug` and `.debug` identifiers for all three native helpers. Debug builds use a separate staged configuration and no updater, preserving the release identity and separating macOS permission records. A stable signing certificate is still needed to retain debug permissions across rebuilds.
+
+- Add the `go-voice` product website at `go-voice.vfasky.com` (`website/`): a dark, bilingual introduction to the app and the FoloToy AI Passport, with the latest Apple silicon DMG and release notes generated from published releases. It is deployed to Cloudflare Workers with the `cf` CLI.
+
 - Add an optional Jev check of homophone corrections to the `go-voice` vocabulary (new Jev tab, off by default). For each span that sounds like a Chinese vocabulary term, TypeSafe's Jev returns the probability that you said the term: likely spans are replaced by code, unlikely ones are kept and AI refinement is told not to change them, and only the uncertain are left to refinement. It works with TypeSafe or any provider of its System One API, such as Alipay MaaS (`jev-1.13`), whose endpoint and model you can enter. It sends the matching spans with some surrounding text and the matching terms to that provider, never audio; it is skipped after 4 seconds or on failure. Each endpoint's API key is kept in Keychain, and Test Connection shows how Jev judges a fixed sample.
 
 - The `go-voice` dictation capsule now shows the words being recognized on its own fixed-width line instead of only asking you to speak: the newest words slide in at the right and older ones scroll out to the left. Apple's local recognizer now reports the words about once a second while you speak, instead of all at once after you release the key. The preview bubble above it now appears only during AI refinement, with the ASR original to be inserted. The capsule and its bubble no longer cast a shadow.

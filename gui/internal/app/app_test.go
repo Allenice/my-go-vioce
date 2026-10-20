@@ -329,6 +329,7 @@ func TestASRMessages(t *testing.T) {
 		{online, true, errors.New("x"), "存入钥匙串失败", false},
 		{online, false, errors.New("missing"), "还没有支付宝 MaaS 的 API key", false},
 		{online, false, nil, "识别引擎：支付宝 MaaS · Fun-ASR 实时", true},
+		{asr.Normalize(asr.Config{Engine: asr.EngineOmni}), false, errors.New("missing"), "还没有阿里云百炼 的 API key", false},
 	} {
 		if msg, ok := asrSettingsMessage(tc.c, tc.typed, tc.err); ok != tc.ok || !strings.Contains(msg, tc.want) {
 			t.Errorf("%+v: %q %v", tc, msg, ok)

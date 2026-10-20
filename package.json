@@ -1,0 +1,7 @@
+{
+  "name": "go-voice-workspace",
+  "private": true,
+  "scripts": {
+    "dev": "./gui/scripts/dev.sh"
+  }
+}

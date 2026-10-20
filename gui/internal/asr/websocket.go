@@ -98,7 +98,8 @@ func (c *conn) WriteBinary(b []byte) error { return c.writeFrame(opBinary, b, tr
 // Close ends the connection without waiting for the server.
 func (c *conn) Close() {
 	c.closed.Do(func() {
-		_ = c.writeFrame(opClose, []byte{0x03, 0xE8}, true)
+		// Abort I/O immediately, including a writer blocked by a stalled peer.
+		// A close-frame write here would take the same lock and defeat cancel.
 		_ = c.rw.Close()
 	})
 }

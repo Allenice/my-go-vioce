@@ -364,6 +364,31 @@ func TestRecognitionDropdownChoosesWholeRecording(t *testing.T) {
 	}
 }
 
+func TestRecognitionOmniKeepsProviderCredentialsSeparate(t *testing.T) {
+	var rec intents
+	v := testView(&rec)
+	v.Page = 2
+	v.ASR = asr.Choices[1].Config
+	v.asrSecret = "alipay-key"
+	tt := newTester(v)
+	_ = tt.Click("选择识别引擎")
+	if err := tt.Click("阿里云百炼 · Omni Realtime（WebSocket）"); err != nil || v.ASR.Engine != asr.EngineOmni {
+		t.Fatalf("choose Omni: %v %+v", err, v.ASR)
+	}
+	if v.asrSecret != "" || !tt.HasText("WebSocket 端点") || !tt.HasText("阿里云百炼") || !tt.HasText(asrHelp(v.ASR)) {
+		t.Fatalf("Omni form or previous provider key: %q", tt.Texts())
+	}
+	v.ASR.Endpoint = "wss://workspace.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime"
+	v.asrSecret = "omni-key"
+	tt.Frame()
+	if err := tt.Click("测试连接"); err != nil || len(rec.asrTested) != 1 || rec.asrTested[0] != v.ASR {
+		t.Fatalf("test custom endpoint: %v %+v", err, rec.asrTested)
+	}
+	if err := tt.Click("保存设置"); err != nil || len(rec.asrSaved) != 1 || rec.asrSaved[0] != v.ASR || rec.asrKeys[0] != "omni-key" {
+		t.Fatalf("save Omni: %v %+v", err, rec)
+	}
+}
+
 func TestSidebarQuitsUnlessInstalling(t *testing.T) {
 	var rec intents
 	v := testView(&rec)

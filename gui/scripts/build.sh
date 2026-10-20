@@ -35,11 +35,15 @@ if [[ -e firmware || -L firmware ]]; then
   exit 1
 fi
 native_staging=""
+debug_staging=""
 mkdir firmware
 cleanup_staging() {
   rm -r -- firmware
   if [[ -n "${native_staging:-}" && -d "$native_staging" ]]; then
     rm -r -- "$native_staging"
+  fi
+  if [[ -n "${debug_staging:-}" && -d "$debug_staging" ]]; then
+    rm -r -- "$debug_staging"
   fi
 }
 trap cleanup_staging EXIT
@@ -57,6 +61,15 @@ for helper in BluetoothHelper SpeechBridge FirmwareHelper; do
   else
     install -m 0755 "macos/.build/$swift_config/$helper" "$bundle/Contents/MacOS/$helper"
     install -m 0644 "macos/$helper/Info.plist" "$bundle/Contents/Info.plist"
+  fi
+  if [[ "$mode" != release ]]; then
+    plist="$bundle/Contents/Info.plist"
+    helper_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")
+    helper_name=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$plist")
+    /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $helper_id.debug" "$plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleName $helper_name-debug" "$plist"
+    /usr/libexec/PlistBuddy -c 'Delete :CFBundleDisplayName' "$plist" 2>/dev/null || true
+    /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string $helper_name-debug" "$plist"
   fi
   printf 'APPL????' > "$bundle/Contents/PkgInfo"
   # Ad hoc for now; a Developer ID build signs the helpers again with the app.
@@ -77,15 +90,16 @@ if [[ "$mode" == release ]]; then
   exit
 fi
 
-# Debug builds never notarize, nor make disk images or update files, and
-# never update themselves.
+# Debug builds have a separate name and TCC identity, including all helpers.
+# Each rebuild refreshes the staged config, leaving release metadata untouched.
+debug_staging="$(mktemp -d "${TMPDIR:-/tmp}/go-voice-debug.XXXXXX")"
 build_app() {
-  env -u MYGO_UPDATER_PRIVATE_KEY go run github.com/egoist/mygo/cmd/mygo build -debug -skip-dmg -skip-notarize -platform darwin/arm64 ${MYGO_SIGN_IDENTITY:+-sign "$MYGO_SIGN_IDENTITY"}
+  # Recreate only the staging this invocation owns, including config changes.
+  rm -r -- "$debug_staging"
+  mkdir "$debug_staging"
+  "$bun_bin" scripts/stage-debug-project.mjs "$PWD" "$debug_staging" || return
+  env -u MYGO_UPDATER_PRIVATE_KEY go run github.com/egoist/mygo/cmd/mygo build -debug -skip-dmg -skip-notarize -platform darwin/arm64 ${MYGO_SIGN_IDENTITY:+-sign "$MYGO_SIGN_IDENTITY"} "$debug_staging"
 }
-if [[ "$mode" != dev ]]; then
-  build_app
-  exit
-fi
 
 # TCC keys an ad-hoc signed app by its code hash, which every rebuild changes,
 # so Accessibility granted to one build is refused for the next. A certificate
@@ -99,11 +113,16 @@ else
   echo 'No Apple Development identity found: signing ad hoc; Accessibility must be re-granted after each rebuild.' >&2
 fi
 
-app="$PWD/build/debug/darwin-arm64/go-voice.app"
-exe="$app/Contents/MacOS/go-voice"
+if [[ "$mode" != dev ]]; then
+  build_app
+  exit
+fi
+
+app="$PWD/build/debug/darwin-arm64/go-voice-debug.app"
+exe="$app/Contents/MacOS/go-voice-debug"
 log="$PWD/build/dev.log"
 fingerprint() {
-  find main.go go.mod go.sum mygo.json internal resources/icon.png resources/entitlements.plist -type f \
+  find main.go go.mod go.sum mygo.json internal resources/icon.png resources/entitlements.plist scripts/stage-debug-project.mjs -type f \
     -exec stat -f '%m %z %N' {} + | shasum
 }
 app_pid() { pgrep -xf "$exe" | head -n 1 || true; }

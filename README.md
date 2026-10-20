@@ -26,13 +26,16 @@ Go Voice no longer requires the Vokie desktop host. A compatible host using the 
 The firmware page uses a signed Rust `FirmwareHelper` backed by pinned `espflash` 4.6.0. It recognizes the ESP32-C3 native USB Serial/JTAG port, performs fail-closed chip, security, flash-size, partition-table, image-hash and permanent-Recovery checks, and writes only the bundled factory application at `0x10000`. It has no erase-all, bootloader, partition-table, NVS, PHY, `cardid`, or Recovery write path.
 
 ```bash
+# From the repository root: signed debug app with watch/rebuild/restart
+bun run dev
+# Or validate and launch the built bundle:
 ./tools/validate.sh --gui
-open gui/build/debug/darwin-arm64/go-voice.app
+open gui/build/debug/darwin-arm64/go-voice-debug.app
 ```
 
 - [go-voice usage, build, and privacy](gui/README.md)
 - [GUI implementation and acceptance record](gui/docs/acceptance.md)
-- Build product: `gui/build/debug/darwin-arm64/go-voice.app`
+- Build product: `gui/build/debug/darwin-arm64/go-voice-debug.app`
 - The bundle launch, four pages, zh-CN model warmup, and real USB Serial/JTAG enumeration are verified. Actual installer preflight/write/reset, badge BLE, Speech/Accessibility/Automation grants, ASR, refinement, and insertion remain interactive hardware acceptance items.
 
 ## Documentation

@@ -1,33 +1,42 @@
-// Package asr runs online speech recognition: Alipay MaaS realtime models
-// over WebSocket, fed the session's 16 kHz PCM as it arrives.
+// Package asr runs online speech recognition over WebSocket or HTTPS,
+// fed the session's 16 kHz PCM as it arrives.
 package asr
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
+	"strings"
 	"time"
 )
 
-// Engines: Apple SpeechAnalyzer in SpeechBridge, or Alipay MaaS online.
+// Engines: Apple SpeechAnalyzer, Alipay MaaS, or Alibaba Cloud Omni Realtime.
 const (
 	EngineLocal  = "local"
 	EngineAlipay = "alipay"
+	EngineOmni   = "aliyun-omni"
 )
+
+const DefaultOmniEndpoint = "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
+const defaultOmniModel = "qwen3-omni-flash-realtime"
 
 // Config is the recognition engine of the settings; the zero value is the
 // local engine.
 type Config struct {
-	Engine string `json:"engine,omitempty"`
-	Model  string `json:"model,omitempty"`
+	Engine   string `json:"engine,omitempty"`
+	Model    string `json:"model,omitempty"`
+	Endpoint string `json:"endpoint,omitempty"`
 }
 
 // Online reports whether c sends audio to an online engine.
-func (c Config) Online() bool { return c.Engine == EngineAlipay }
+func (c Config) Online() bool { return c.Engine == EngineAlipay || c.Engine == EngineOmni }
 
 // Streaming reports whether c recognizes the audio while it arrives; the
 // other online models recognize the whole recording once it ends.
-func (c Config) Streaming() bool { return c.Online() && c.Model != modelFlash }
+func (c Config) Streaming() bool {
+	return c.Engine == EngineOmni || (c.Engine == EngineAlipay && c.Model != modelFlash)
+}
 
 // modelFlash recognizes a whole recording in one HTTP request.
 const modelFlash = "qwen3-asr-flash"
@@ -44,11 +53,22 @@ var Choices = []Choice{
 	{"alipay/fun-asr-realtime", "支付宝 MaaS · Fun-ASR 实时", Config{Engine: EngineAlipay, Model: "fun-asr-realtime"}},
 	{"alipay/paraformer-realtime-v2", "支付宝 MaaS · Paraformer 实时 v2", Config{Engine: EngineAlipay, Model: "paraformer-realtime-v2"}},
 	{"alipay/" + modelFlash, "支付宝 MaaS · Qwen3-ASR-Flash（非流式）", Config{Engine: EngineAlipay, Model: modelFlash}},
+	{"aliyun-omni", "阿里云百炼 · Omni Realtime（WebSocket）", Config{Engine: EngineOmni, Model: defaultOmniModel}},
 }
 
-// Normalize maps settings saved by an older build, or edited by hand, to a
-// choice: unknown engines and models become the local engine.
+// Normalize fills Omni defaults and maps unknown preset engines/models to
+// local. Custom Omni endpoints and model names are checked by Validate.
 func Normalize(c Config) Config {
+	if c.Engine == EngineOmni {
+		c.Endpoint, c.Model = strings.TrimSpace(c.Endpoint), strings.TrimSpace(c.Model)
+		if c.Endpoint == DefaultOmniEndpoint {
+			c.Endpoint = ""
+		}
+		if c.Model == "" {
+			c.Model = defaultOmniModel
+		}
+		return c
+	}
 	for _, ch := range Choices {
 		if ch.Config == c {
 			return c
@@ -61,16 +81,65 @@ func Normalize(c Config) Config {
 func ChoiceOf(c Config) Choice {
 	c = Normalize(c)
 	for _, ch := range Choices {
-		if ch.Config == c {
+		if ch.Config == c || (c.Engine == EngineOmni && ch.Config.Engine == EngineOmni) {
+			ch.Config = c
 			return ch
 		}
 	}
 	return Choices[0]
 }
 
-// KeyAccount is the Keychain account of the Alipay MaaS API key; it cannot
-// collide with the endpoints that key refinement.
-const KeyAccount = "asr:alipay-maas"
+// KeyAccount separates providers and custom Omni endpoints. Existing Alipay
+// credentials keep their original account.
+func KeyAccount(c Config) string {
+	if c.Engine == EngineOmni {
+		return "asr:aliyun-omni:" + c.ServerURL()
+	}
+	return "asr:alipay-maas"
+}
+
+func (c Config) Provider() string {
+	if c.Engine == EngineOmni {
+		return "阿里云百炼"
+	}
+	return "支付宝 MaaS"
+}
+
+func (c Config) ServerURL() string {
+	if strings.TrimSpace(c.Endpoint) == "" {
+		return DefaultOmniEndpoint
+	}
+	return strings.TrimSpace(c.Endpoint)
+}
+
+func (c Config) Host() string {
+	if c.Engine == EngineOmni {
+		u, err := url.Parse(c.ServerURL())
+		if err == nil {
+			return u.Host
+		}
+		return ""
+	}
+	return Host
+}
+
+// Validate refuses endpoints with credentials, queries or fragments before
+// looking up a key. The model is passed separately in the connection URL.
+func (c Config) Validate() error {
+	if !c.Online() || Normalize(c) != c {
+		return ErrConfig
+	}
+	if c.Engine == EngineOmni {
+		u, err := url.Parse(c.ServerURL())
+		if err != nil || u.Scheme != "wss" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" || len(c.ServerURL()) > 1024 {
+			return ErrEndpoint
+		}
+		if len(c.Model) > 128 || strings.ContainsAny(c.Model, " \t\r\n/?#") {
+			return ErrConfig
+		}
+	}
+	return nil
+}
 
 // Host receives the audio of online sessions.
 const Host = "maas-api.antdigital.com"
@@ -90,7 +159,8 @@ const StartTimeout = 4 * time.Second
 // Why a session failed, for Message to explain.
 var (
 	ErrKey      = errors.New("asr: key unavailable")
-	ErrConfig   = errors.New("asr: not an online engine")
+	ErrConfig   = errors.New("asr: invalid engine or model")
+	ErrEndpoint = errors.New("asr: invalid WebSocket endpoint")
 	ErrProtocol = errors.New("asr: invalid reply")
 )
 
@@ -113,6 +183,10 @@ func Message(err error) string {
 	var status *StatusError
 	var task *TaskError
 	switch {
+	case errors.Is(err, ErrEndpoint):
+		return "WebSocket 端点必须是 wss:// 地址，不能包含凭据、查询参数或片段；模型名请单独填写。"
+	case errors.Is(err, ErrConfig):
+		return "在线识别引擎或模型配置无效，请检查“语音识别”设置。"
 	case errors.Is(err, ErrKey):
 		return "在线识别没有可用的 API key：请到“语音识别”页填写并保存。"
 	case errors.Is(err, context.DeadlineExceeded):

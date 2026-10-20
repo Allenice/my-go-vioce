@@ -4,6 +4,12 @@
 
 验证记录日期：2026-10-19。以下结果对应当时测试的实现与应用包。USB 设备检查仅覆盖只读 Serial/JTAG 枚举，桌面安装器的预检、写入和复位仍未验证；历史结果不能代替新发布构建的验证。
 
+## Omni WebSocket 与调试身份验证（2026-10-20）
+
+Build：Apple Development 签名的 `go-voice-debug.app` PASS。Host tests：`./tools/validate.sh --gui`、ASR race 测试及根静态检查 PASS。Device tests：NOT RUN。根完整门禁因缺少 `idf.py` / 未激活 ESP-IDF 5.5.3 环境，在固件编译前停止；GUI 门禁单独验证了现有包内固件镜像。
+
+TLS WebSocket fixture 验证 Bearer 鉴权、会话配置、PCM 字节一致性、预览替换、手动提交、最终消息关联、错误、静音连接测试和取消。打包验证检查主应用及三个 helper 的 `.debug` 标识、签名、arm64 可执行文件及固件 manifest。调试元数据在临时 staging 中生成，正式版配置保持不变。Unverified：真实阿里云百炼端点、设备到应用的听写、首次调试授权及重构建后正式版/调试版 TCC 授权保留。下方既有验收证据仍属于历史记录。
+
 ## 固件打包验收
 
 集成后的 FirmwareHelper 变更通过 11 个打包 fixture 测试（59 个断言）、9 个 Rust 测试、Bun 到 Rust 的 manifest 契约探针、含 race 的 Go 测试、Swift 测试、Clippy、shell 语法、helper Info.plist、完整 App 打包、arm64 检查及内外签名校验。Build：PASS。Host tests：PASS。Device tests：仅只读 USB 枚举 PASS；预检/写入/复位 NOT RUN。
@@ -16,7 +22,7 @@ Rust、Go、Swift、固件打包和签名层的集成主机门禁现已通过。
 
 ## 已实现契约
 
-- 薄 Go 入口、独立 module、MyGo 0.5.5 原生 UI 和标准 debug 打包。应用名称为 `go-voice`，bundle id 为 `yz.sh.mygo-go-voice`，BLE 产品身份仍为 Go Voice。
+- 薄 Go 入口、独立 module、MyGo 0.5.5 原生 UI 和标准 debug 打包。正式版应用名称为 `go-voice`，bundle id 为 `yz.sh.mygo-go-voice`；本地构建为 `go-voice-debug` / `yz.sh.mygo-go-voice.debug`，每个 helper 标识也追加 `.debug`。BLE 产品身份仍为 Go Voice。
 - 严格控制校验拒绝重复/未知键、尾随 JSON、非法 UTF-8、错误数字类型、不支持的格式、缺失必填字段和超长控制消息。Audio envelope 校验、64 分片组装、去重、确定性有界淘汰、独立 166B IMA-ADPCM、320 样本 PCM 与有界排序均为纯 Go。
 - 流处理有 75 帧早到缓存、80ms 缺口等待、累计 100 帧补静音上限、500ms 已声明尾帧等待、3 秒 stall 和 15000 帧/5 分钟上限。不保存音频历史即可计算 RMS、peak、32 个波形 bins、时长和收帧/缺帧/补帧/重复计数。
 - 协调器测试覆盖 start、重复 start、早到帧、Speech ready 前 release、finish、润色、插字确认、断线、取消、旧结果、接受超时、连续复用 PTT 序号 0/1 的多段会话，以及使用独立序号空间的按键事件。每个原生 Speech 请求使用不同于 BLE session ID 的宿主代次 ID。设备取消先清除当前请求，再发送原生取消。

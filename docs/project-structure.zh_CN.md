@@ -38,6 +38,7 @@ gui/
   resources/                  桌面与菜单栏图标
   scripts/                    构建、开发启动、打包与验证
   docs/                       桌面端验收与依赖声明
+website/                      介绍与下载网站（Cloudflare Workers 静态资源）
 vokie-plugin/                 导入的上游参考，不参与桌面端运行
 docs/                         产品、协议、硬件与开发文档
 .github/                      CI、Issue 表单与社区文档
@@ -56,6 +57,6 @@ Mac 侧由 `internal/app` 组合服务。设备协调器负责会话标识、取
 
 - `build/FoloToy-AI-Passport-full.bin`：已验证的合并固件，用于文档规定的小程序/Recovery 流程。
 - `build/FoloToy-AI-Passport.bin`：已验证的应用镜像，用于桌面端打包。
-- `gui/build/debug/darwin-arm64/go-voice.app`：开发版桌面应用包，内含签名原生 helper 与仅应用分区的固件。
+- `gui/build/debug/darwin-arm64/go-voice-debug.app`：开发版桌面应用包，使用独立的 `.debug` 权限身份，内含签名原生 helper 与仅应用分区的固件。
 
 构建目录、暂存 helper、临时固件打包内容和生成图片实验均排除在版本控制之外。相关操作见[构建与测试](development/engineering/build-and-test.zh_CN.md)、[桌面端构建指南](../gui/README.zh_CN.md#构建与验证)和[系统架构](passport-audio-input-architecture.zh_CN.md)。

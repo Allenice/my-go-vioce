@@ -24,3 +24,8 @@ __pycache__/
 *.pfx
 *.mobileprovision
 *.provisionprofile
+
+# Product website (website/)
+/website/node_modules/
+/website/.cloudflare/
+/website/public/data/releases.json

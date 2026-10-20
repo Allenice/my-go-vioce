@@ -2,13 +2,23 @@
 
 # go-voice macOS 应用
 
-`go-voice` 是 Go Voice 的 macOS 26+ Apple Silicon 桌面宿主，基于 MyGo 构建。独立 Go module 为 `github.com/vfasky/my-ai-audio/gui`，bundle identifier 为 `yz.sh.mygo-go-voice`。
+`go-voice` 是 Go Voice 的 macOS 26+ Apple Silicon 桌面宿主，基于 MyGo 构建。独立 Go module 为 `github.com/vfasky/my-ai-audio/gui`，正式版 bundle identifier 为 `yz.sh.mygo-go-voice`。本地构建使用 `go-voice-debug.app` 和 `yz.sh.mygo-go-voice.debug`，三个 helper 的标识也追加 `.debug`，以分离开发版与正式版的 TCC 权限记录。
 
 `go-voice` 原生 UI 提供设备与本次语音、词库、语音识别、AI 润色和固件安装五页，以及权限引导页；侧边栏另有“应用”分区，内含“通用”页。界面固定为暗色，遵循 macOS 26 布局：内嵌红绿灯的悬浮 Liquid Glass 侧边栏、位于柔和滚动边缘上的工具栏，以及分组内嵌区块。石墨卡片、黑色内嵌井、白色主胶囊按钮和仅用于实时音频的橙色强调色均参照设计稿；FoloToy AI Passport 声波以中心为最新峰值向两侧镜像展开，空闲时显示暗色圆点；识别、润色和插字时同一面板显示橙色脉冲。扫描时不会自动选择设备，明确选择后的 peripheral UUID 会持久化用于重连。设备页显示固件、握手状态、波形、RMS/peak、时长、实时转写、最终 ASR 原文、润色结果和帧诊断。不保存、不回放音频。
 
 ## 构建与验证
 
 需要 Apple Silicon、macOS 26 或更新版本、Go 1.27.1、Rust/Cargo（含 `aarch64-apple-darwin` target）、Bun（可用 `WAKU_BUN_EXECUTABLE` 指定内置运行时），以及包含 SpeechAnalyzer 和 FoundationModels 的 Xcode SDK。Go 依赖版本固定在 `go.mod` 和 `go.sum`；Rust 依赖必须固定在 `firmware-helper/Cargo.lock`。先在仓库根目录运行 `./tools/validate.sh --firmware`，生成两个已验证的固件产物。
+
+在仓库根目录启动带签名、自动重构建和重启的调试应用：
+
+```bash
+bun run dev
+```
+
+该命令调用 `gui/scripts/dev.sh`，不需要 JavaScript 依赖或执行 `bun install`。Go 源码与配置变化时，会重新构建并重启 `go-voice-debug.app`；按 Ctrl+C 停止。Swift/Rust helper 变化需重新运行命令。
+
+也可直接运行构建和验证脚本：
 
 ```bash
 cd gui
@@ -19,11 +29,11 @@ cd gui
 ./scripts/dev.sh
 ```
 
-`dev.sh` 在会话期间保留固件与原生 helper staging，构建带签名的 debug app，并通过 LaunchServices（`open`）启动，使 TCC 将蓝牙和语音权限归属于 go-voice 本身。Go 源码、`go.mod`/`go.sum`、`mygo.json`、图标或 entitlements 变化时重新构建；构建成功会先退出正在运行的应用（SIGTERM，使 helper 正常关闭）再启动新版本，构建失败则保留当前应用。应用输出写入 `gui/build/dev.log`。退出应用或按 Ctrl+C 结束会话并清理 staging。Swift 或 Rust helper 变更需重新开始会话。不使用 `mygo dev`，因为它把应用作为自身子进程启动，TCC 会把启动终端视为责任进程并终止 BluetoothHelper。`MYGO_SIGN_IDENTITY` 可指定签名身份（默认 ad hoc）。
+`dev.sh` 在会话期间保留固件与原生 helper staging，构建带签名的 debug app，并通过 LaunchServices（`open`）启动，使 TCC 将蓝牙和语音权限归属于 go-voice 本身。Go 源码、`go.mod`/`go.sum`、`mygo.json`、图标或 entitlements 变化时重新构建；构建成功会先退出正在运行的应用（SIGTERM，使 helper 正常关闭）再启动新版本，构建失败则保留当前应用。应用输出写入 `gui/build/dev.log`。退出应用或按 Ctrl+C 结束会话并清理 staging。Swift 或 Rust helper 变更需重新开始会话。不使用 `mygo dev`，因为它把应用作为自身子进程启动，TCC 会把启动终端视为责任进程并终止 BluetoothHelper。`MYGO_SIGN_IDENTITY` 可指定签名身份；未指定时本地构建优先使用已有的 Apple Development 证书，没有可用证书才回退为 ad hoc。稳定的证书可使调试版跨次构建保持相同的 designated requirement；ad-hoc 重构建仍可能需要重新授权。`scripts/stage-debug-project.mjs` 单独生成临时调试配置，`mygo.json` 保留正式版名称和身份；调试版不包含更新配置。
 
-验证脚本运行固件打包 fixture 测试、Cargo 格式/测试/Clippy、gofmt、`go test ./...`、`go vet ./...` 和 Swift 构建/测试，然后构建三个原生 helper 与 MyGo debug app。检查包内固件摘要和 manifest、内外签名及 arm64 可执行文件。结果位于 `gui/build/debug/darwin-arm64/go-voice.app`。应启动 app 包，不使用 `go run`，以正确定位原生资源和 TCC 身份。构建不会启动应用、请求系统权限、连接 FoloToy AI Passport 或访问 USB 设备。
+验证脚本运行固件打包 fixture 测试、Cargo 格式/测试/Clippy、gofmt、`go test ./...`、`go vet ./...` 和 Swift 构建/测试，然后构建三个原生 helper 与 MyGo debug app。检查包内固件摘要和 manifest、内外签名及 arm64 可执行文件。结果位于 `gui/build/debug/darwin-arm64/go-voice-debug.app`。应启动 app 包，不使用 `go run`，以正确定位原生资源和 TCC 身份。构建不会启动应用、请求系统权限、连接 FoloToy AI Passport 或访问 USB 设备。
 
-仓库根目录也可运行 `./tools/validate.sh --gui` 执行同一门禁。GUI 验证读取 `build/FoloToy-AI-Passport.bin`，不改变任一根固件产物。构建临时生成 `gui/firmware/go-voice-app.bin` 和 `manifest.json`，将目录打包至 `Contents/Resources/firmware`，退出时清理 staging，构建失败也会清理。源码树不长期保留固件二进制。`FirmwareHelper.app` 位于 `Contents/Resources/native`，独立身份为 `yz.sh.mygo-go-voice.firmware-helper`；内层 helper 先于外层 app 签名。
+仓库根目录也可运行 `./tools/validate.sh --gui` 执行同一门禁。GUI 验证读取 `build/FoloToy-AI-Passport.bin`，不改变任一根固件产物。构建临时生成 `gui/firmware/go-voice-app.bin` 和 `manifest.json`，将目录打包至 `Contents/Resources/firmware`，退出时清理 staging，构建失败也会清理。源码树不长期保留固件二进制。`FirmwareHelper.app` 位于 `Contents/Resources/native`，正式版身份为 `yz.sh.mygo-go-voice.firmware-helper`（本地构建为 `yz.sh.mygo-go-voice.firmware-helper.debug`）；内层 helper 先于外层 app 签名。
 
 ## 固件安装契约
 
@@ -36,6 +46,8 @@ USB 安装只向 `0x10000` 写入包内应用，最大 3 MB。写入前 helper �
 `internal/app` 是唯一组装层。UI 回调只发送意图，后台事件通过 `mygo.RunOnMain` 回到 UI 线程。协调器管理会话代次、取消、早到音频缓存及终态。Go 把独立 ADPCM 帧解码为 16 kHz、有符号 16-bit 小端单声道 PCM。默认由 Swift 子进程直接接收 PCM，使用 SpeechAnalyzer/SpeechTranscriber 的 volatile results 和当前词库，不创建 Mac 麦克风输入。
 
 在“语音识别”页选择在线引擎后，由应用自身把这些 PCM 按 100 ms 一包，经 WebSocket（`wss://maas-api.antdigital.com/api-ws/v1/inference`，DashScope 双工任务协议：run-task、二进制音频、finish-task）实时发送到支付宝 MaaS 实时模型（`fun-asr-realtime` 或 `paraformer-realtime-v2`）；中间结果到达即显示在胶囊中，task-finished 后得到最终转写。非流式的 `qwen3-asr-flash` 则把本次音频留在内存中，松开按键后封装为一个 WAV（Base64 data URL）发送到 `https://maas-api.antdigital.com/api/v1/services/aigc/multimodal-generation/generation`；说话时不显示中间文字，请求最长等待 45 秒。此时 SpeechBridge 只登记会话和插字目标（`begin`），AI 润色与插字流程与本地识别相同，本次会话也不需要“语音识别”权限。明确选择并保存在线引擎即允许把每次语音的音频发送到支付宝 MaaS；不发送词库，也不保存音频。开始时最多留 4 秒建立连接，期间早到的音频会先缓存；缺少或无效的 API key、key 无权使用该模型、超时或任务失败都会以中文原因结束本次会话，不会自动改用本地识别。页面上的“测试连接”只发送半秒静音。API key 仅存入 macOS 钥匙串（账户 `asr:alipay-maas`）。
+
+新增的阿里云百炼 Omni Realtime 选项遵循 [Omni Realtime 交互协议](https://help.aliyun.com/zh/model-studio/omni-realtime-interaction-process)及其[输入转写事件](https://help.aliyun.com/zh/model-studio/server-events)。默认模型为 `qwen3-omni-flash-realtime`，端点为 `wss://dashscope.aliyuncs.com/api-ws/v1/realtime`；页面支持填写其他 Omni Realtime 模型及 WSS 端点，包括服务商提供的业务空间地域地址。API key 必须对应所选地域和业务空间。端点不能包含凭据、查询参数或片段，模型名会单独添加。每个 Omni 端点使用独立的钥匙串账户，不复用支付宝密钥。收到 `session.created` 后发送 `session.update`，配置 16 kHz PCM、开启输入转写、设置 `turn_detection: null`；等待 `session.updated` 后，通过 `input_audio_buffer.append` 发送 Base64 PCM。松开按键后发送 `input_audio_buffer.commit`。预览事件以 `text + stash` 替换当前句子，只有已提交消息项的最终输入转写才结束听写。不发送 `response.create`，不使用模型回答或生成音频。收尾最多等待 15 秒，取消时即使写入阻塞也会关闭连接。“测试连接”只发送半秒静音。真实服务行为及设备听写仍待验证。
 
 BluetoothHelper 只使用[权威 BLE 协议](../docs/ai-passport-ble-protocol.zh_CN.md)中的 Go Voice UUID。helper 在发送 host_ready 前确认 MTU 和订阅，有响应写重试、断线退避重连及父进程退出清理。两侧进程边界均使用有界 NDJSON 与 canonical Base64。音频缓存只存在内存中。
 

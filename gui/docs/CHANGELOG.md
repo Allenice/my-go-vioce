@@ -6,6 +6,11 @@
 
 Each `## <version>` section is the release note of one signed `go-voice` release. `scripts/release.sh` requires the section in both language files; the Simplified Chinese section is signed into the update manifest and shown in the in-app update window, because the app interface is Chinese. Write user-visible changes only and keep both sections aligned. See [updates and releases](updates.md).
 
+## Unreleased
+
+- Choose Alibaba Cloud Omni Realtime WebSocket on the Speech Recognition page. Set its endpoint, model and API key; audio streams while recording and is submitted on key release. Only input transcription is inserted, with credentials stored separately from Alipay MaaS.
+- Local builds are named `go-voice-debug` and use separate macOS permission identities for the main app and all helpers, so development builds do not replace the release app's permission records.
+
 ## 0.2.0
 
 - Choose online speech recognition on the new Speech Recognition page: Alipay MaaS Fun-ASR and Paraformer v2 stream text while you speak; Qwen3-ASR-Flash transcribes the complete recording after you release the key. Apple on-device recognition remains the default. Online recognition sends session audio to Alipay MaaS, keeps its API key in Keychain, and reports failures without switching engines.

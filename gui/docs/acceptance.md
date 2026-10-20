@@ -4,6 +4,12 @@
 
 Recorded validation date: 2026-10-19. The results below describe the tested implementation and package. USB device checks cover read-only Serial/JTAG enumeration; desktop installer preflight, writing and reset remain unverified. These historical results do not replace validation of a new release build.
 
+## Omni WebSocket and debug identity validation (2026-10-20)
+
+Build: PASS for the Apple Development-signed `go-voice-debug.app`. Host tests: PASS for `./tools/validate.sh --gui`, ASR race tests, and the root static checks. Device tests: NOT RUN. The root complete gate stopped before firmware compilation because `idf.py` / the activated ESP-IDF 5.5.3 environment was unavailable; the GUI gate separately verified the existing packaged firmware image.
+
+The TLS WebSocket fixture verifies Bearer authentication, session configuration, exact PCM payloads, preview replacement, manual commit, final item correlation, errors, silent connection testing and cancellation. Package validation checks the main `.debug` identifier and all three helper `.debug` identifiers, their signatures, arm64 executables and firmware manifest. Debug metadata is generated in temporary staging; release configuration remains unchanged. Unverified: a live Alibaba Cloud endpoint, device-to-app dictation, first debug grants and retention of release/debug TCC grants across rebuilds. The earlier acceptance evidence below remains historical.
+
 ## Firmware packaging acceptance
 
 The integrated FirmwareHelper change passes 11 packaging fixture tests with 59 assertions, nine Rust tests, the Bun-to-Rust manifest contract probe, Go tests including race checks, Swift tests, Clippy, shell syntax, helper Info.plist, complete app packaging, arm64 checks and nested/outer signature verification. Build: PASS. Host tests: PASS. Device tests: PASS for read-only USB enumeration only; preflight/write/reset NOT RUN.
@@ -16,7 +22,7 @@ Device acceptance must still confirm app-only writes at `0x10000`, preflight rej
 
 ## Implemented contract
 
-- Thin Go entry point, independent module, MyGo 0.5.5 native UI and standard debug packaging. The app name is `go-voice`, its bundle id is `yz.sh.mygo-go-voice`, and the BLE product identity remains Go Voice.
+- Thin Go entry point, independent module, MyGo 0.5.5 native UI and standard debug packaging. The release app name is `go-voice`, its bundle id is `yz.sh.mygo-go-voice`; local builds are `go-voice-debug` / `yz.sh.mygo-go-voice.debug`, with `.debug` appended to every helper identifier. The BLE product identity remains Go Voice.
 - Strict control validation rejects duplicate/unknown keys, trailing JSON, malformed UTF-8, invalid numeric types, unsupported format, missing mandatory fields and oversize controls. Audio envelope validation, 64-part assembly, duplicate suppression, deterministic bounded eviction, independent 166-byte IMA-ADPCM, 320-sample PCM and bounded ordering are pure Go.
 - Streaming has a 75-frame early buffer, 80 ms gap wait, cumulative 100-frame silence limit, 500 ms announced-tail deadline, three-second stall, and 15,000-frame/five-minute cap. RMS, peak, 32 waveform bins, duration and received/missing/recovered/duplicate counts are calculated without retaining audio history.
 - Coordinator tests exercise start, duplicate start, early frames, release before Speech readiness, finish, refinement, insertion acknowledgment, disconnect, cancellation, stale results, acceptance timeout, consecutive sessions that reuse PTT sequence 0/1, and button events in their independent sequence space. Every native Speech request uses a host generation ID distinct from the BLE session ID. Device cancellation clears the current request before sending native cancellation.

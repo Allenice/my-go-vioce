@@ -26,13 +26,16 @@ Go Voice 不再依赖 Vokie 桌面宿主。采集与文字输入需要实现 [Go
 固件页使用签名的 Rust `FirmwareHelper`，底层固定为 `espflash` 4.6.0。它识别 ESP32-C3 原生 USB Serial/JTAG，采用 fail-closed 方式检查芯片、安全状态、Flash 容量、分区表、镜像摘要和永久 Recovery，只向 `0x10000` 写入随 App 提供的 factory 应用；不存在 erase-all、bootloader、分区表、NVS、PHY、`cardid` 或 Recovery 写入路径。
 
 ```bash
+# 在仓库根目录启动带签名的调试版，监听变化并自动重构建、重启：
+bun run dev
+# 或验证后启动构建产物：
 ./tools/validate.sh --gui
-open gui/build/debug/darwin-arm64/go-voice.app
+open gui/build/debug/darwin-arm64/go-voice-debug.app
 ```
 
 - [go-voice 使用、构建与隐私说明](gui/README.zh_CN.md)
 - [GUI 实现与验收记录](gui/docs/acceptance.zh_CN.md)
-- 构建产物：`gui/build/debug/darwin-arm64/go-voice.app`
+- 构建产物：`gui/build/debug/darwin-arm64/go-voice-debug.app`
 - 已验证应用包启动、四页显示、zh-CN 模型预热和真实 USB Serial/JTAG 枚举；安装器实际预检/写入/复位、真实工牌 BLE、Speech/辅助功能/自动化授权、ASR、润色和插字仍需交互式真机验收。
 
 ## 文档

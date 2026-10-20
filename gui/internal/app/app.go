@@ -1146,10 +1146,11 @@ func (a *application) startOnline(id uint32) {
 	a.closeOnline()
 	a.sendSpeech(map[string]any{"type": "begin", "sessionId": id})
 	a.onlineID = id
+	c := a.config.ASR
 	a.online = asr.Start(ctxOrBackground(a.ctx), asr.Options{
-		Config: a.config.ASR,
+		Config: c,
 		Key: func(ctx context.Context) (string, error) {
-			return (keychain.Store{}).Get(ctx, asr.KeyAccount)
+			return (keychain.Store{}).Get(ctx, asr.KeyAccount(c))
 		},
 		OnEvent: func(e asr.Event) { a.post(func() { a.onOnline(id, e) }) },
 	})
@@ -1193,6 +1194,13 @@ func (a *application) setASRFeedback(c asr.Config, msg string, ok bool) {
 // keychain; for an online engine without one, it checks a key is saved.
 func (a *application) configureASR(c asr.Config, key string) {
 	c = asr.Normalize(c)
+	if c.Online() {
+		if err := c.Validate(); err != nil {
+			a.setASRFeedback(c, asr.Message(err), false)
+			a.refresh()
+			return
+		}
+	}
 	a.config.ASR = c
 	a.applyASR()
 	if a.writeSettings() != nil {
@@ -1200,7 +1208,7 @@ func (a *application) configureASR(c asr.Config, key string) {
 		a.refresh()
 		return
 	}
-	if key == "" && !c.Online() {
+	if !c.Online() {
 		msg, ok := asrSettingsMessage(c, false, nil)
 		a.setASRFeedback(c, msg, ok)
 		a.refresh()
@@ -1210,9 +1218,9 @@ func (a *application) configureASR(c asr.Config, key string) {
 		ctx := ctxOrBackground(a.ctx)
 		var err error
 		if key != "" {
-			err = (keychain.Store{}).Set(ctx, asr.KeyAccount, key)
+			err = (keychain.Store{}).Set(ctx, asr.KeyAccount(c), key)
 		} else {
-			_, err = (keychain.Store{}).Get(ctx, asr.KeyAccount)
+			_, err = (keychain.Store{}).Get(ctx, asr.KeyAccount(c))
 		}
 		a.post(func() {
 			msg, ok := asrSettingsMessage(c, key != "", err)
@@ -1231,7 +1239,7 @@ func asrSettingsMessage(c asr.Config, typedKey bool, keyErr error) (string, bool
 	case typedKey:
 		return next + "API key 已存入钥匙串。", true
 	case c.Online() && keyErr != nil:
-		return "设置已保存，但还没有支付宝 MaaS 的 API key：请填写后再次保存。", false
+		return "设置已保存，但还没有" + c.Provider() + " 的 API key：请填写后再次保存。", false
 	}
 	return next, true
 }
@@ -1241,13 +1249,19 @@ func (a *application) testASR(c asr.Config, key string) {
 	if a.view.Snapshot.ASRTesting {
 		return
 	}
+	c = asr.Normalize(c)
+	if err := c.Validate(); err != nil {
+		a.setASRFeedback(c, asr.Message(err), false)
+		a.refresh()
+		return
+	}
 	a.view.Snapshot.ASRTesting, a.view.Snapshot.ASRFeedback = true, ""
 	a.refresh()
 	go func() {
 		ctx := ctxOrBackground(a.ctx)
 		var err error
 		if key == "" {
-			if key, err = (keychain.Store{}).Get(ctx, asr.KeyAccount); err != nil {
+			if key, err = (keychain.Store{}).Get(ctx, asr.KeyAccount(c)); err != nil {
 				err = asr.ErrKey
 			}
 		}
@@ -1271,14 +1285,19 @@ func asrTestMessage(c asr.Config, res asr.TestResult, err error) (string, bool) 
 }
 
 func (a *application) deleteASRKey() {
-	c := a.view.ASR
+	c := asr.Normalize(a.view.ASR)
+	if err := c.Validate(); err != nil {
+		a.setASRFeedback(c, asr.Message(err), false)
+		a.refresh()
+		return
+	}
 	go func() {
-		err := (keychain.Store{}).Delete(ctxOrBackground(a.ctx), asr.KeyAccount)
+		err := (keychain.Store{}).Delete(ctxOrBackground(a.ctx), asr.KeyAccount(c))
 		a.post(func() {
 			if err != nil {
 				a.setASRFeedback(c, "删除失败：无法访问钥匙串。", false)
 			} else {
-				a.setASRFeedback(c, "已从钥匙串删除支付宝 MaaS 的 API key。", true)
+				a.setASRFeedback(c, "已从钥匙串删除"+c.Provider()+" 的 API key。", true)
 			}
 		})
 	}()

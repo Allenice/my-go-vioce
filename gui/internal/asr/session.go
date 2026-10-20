@@ -129,8 +129,8 @@ func (s *Session) run() {
 
 func (s *Session) recognize() (string, error) {
 	c := s.opts.Config
-	if !c.Online() || Normalize(c) != c {
-		return "", ErrConfig
+	if err := c.Validate(); err != nil {
+		return "", err
 	}
 	timer := time.AfterFunc(StartTimeout, func() { s.timedOut.Store(true); s.cancel() })
 	defer timer.Stop()
@@ -140,6 +140,9 @@ func (s *Session) recognize() (string, error) {
 			return "", s.ctx.Err()
 		}
 		return "", ErrKey
+	}
+	if c.Engine == EngineOmni {
+		return s.recognizeOmni(key, timer)
 	}
 	if !c.Streaming() {
 		timer.Stop()

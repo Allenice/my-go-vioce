@@ -38,6 +38,7 @@ gui/
   resources/                  Desktop and menu-bar icons
   scripts/                    Builds, development launch, packaging and validation
   docs/                       Desktop acceptance and dependency notices
+website/                      Product and download site (Cloudflare Workers static assets)
 vokie-plugin/                 Imported upstream reference, outside the desktop runtime
 docs/                         Product, protocol, hardware and development documentation
 .github/                      CI, issue forms and community documents
@@ -56,6 +57,6 @@ The authoritative [BLE V1 protocol](ai-passport-ble-protocol.md) is shared by fi
 
 - `build/FoloToy-AI-Passport-full.bin`: verified merged firmware for the documented mini-program/Recovery flow.
 - `build/FoloToy-AI-Passport.bin`: verified application image used by desktop packaging.
-- `gui/build/debug/darwin-arm64/go-voice.app`: development desktop bundle with signed native helpers and packaged app-only firmware.
+- `gui/build/debug/darwin-arm64/go-voice-debug.app`: development desktop bundle with separate `.debug` permission identities, signed native helpers and packaged app-only firmware.
 
 Build directories, staged helpers, temporary firmware packaging and generated image experiments are excluded from source control. See [build and test](development/engineering/build-and-test.md), the [desktop build guide](../gui/README.md#build-and-validate), and [system architecture](passport-audio-input-architecture.md).
