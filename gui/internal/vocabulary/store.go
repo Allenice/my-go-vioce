@@ -88,7 +88,12 @@ func (s *Store) Delete(term string, ai bool) error {
 	return nil
 }
 func (s *Store) Top(n int) []string {
-	n = max(0, min(n, 100, len(s.Terms)))
+	return s.ranked(min(n, 100))
+}
+
+// ranked is shared by the bounded recognition hints and the full correction list.
+func (s *Store) ranked(n int) []string {
+	n = max(0, min(n, len(s.Terms)))
 	if n == 0 {
 		return nil
 	}

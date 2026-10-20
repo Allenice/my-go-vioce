@@ -14,6 +14,7 @@ import (
 	"github.com/vfasky/my-ai-audio/gui/internal/protocol"
 	"github.com/vfasky/my-ai-audio/gui/internal/refinement"
 	"github.com/vfasky/my-ai-audio/gui/internal/vocabulary"
+	"github.com/vfasky/my-ai-audio/gui/internal/wordlists"
 )
 
 type Device struct{ ID, Name string }
@@ -28,10 +29,14 @@ type Snapshot struct {
 	Replacements                                                                                      []vocabulary.Replacement
 	// VocabFeedback is how the last import or export of the vocabulary
 	// ended.
-	VocabFeedback   string
-	VocabFeedbackOK bool
-	Config          refinement.Config
-	Permissions     permission.Set
+	VocabFeedback    string
+	VocabFeedbackOK  bool
+	Packs            wordlists.Config
+	PacksFeedback    string
+	PacksFeedbackOK  bool
+	PacksFeedbackFor wordlists.Config
+	Config           refinement.Config
+	Permissions      permission.Set
 	// CanCommit: the dictation capsule may insert the ASR original now.
 	CanCommit bool
 	// Testing: the connection test of the OpenAI-compatible interface runs.
@@ -77,6 +82,7 @@ type Actions struct {
 	// ImportVocabulary and ExportVocabulary pick a JSON file and merge it
 	// into, or write, the terms and replacements.
 	ImportVocabulary, ExportVocabulary func()
+	ConfigurePacks                     func(wordlists.Config)
 	// Configure saves the settings, and a typed API key to the keychain.
 	Configure  func(refinement.Config, string)
 	Credential func(string, string)
@@ -127,6 +133,7 @@ type View struct {
 	// Jev is the vocabulary check drafted on its tab; jevSecret the typed
 	// API key.
 	Jev       jev.Config
+	Packs     wordlists.Config
 	jevSecret string
 	Loaded    bool
 	// AppIcon is the packaged app icon shown at the top of the sidebar.
@@ -146,7 +153,7 @@ var pages = []struct {
 	icon                *ui.SVG
 }{
 	{"voice", "设备与语音", "从 FoloToy AI Passport 接收音频并在本机转写", iconWave},
-	{"vocabulary", "词库", "下一次语音开始时注入 Top 100", iconBook},
+	{"vocabulary", "词库", "个人专名、通用词库与 IT 行业词库", iconBook},
 	{"recognition", "语音识别", "Apple 本地识别，或支付宝 MaaS 在线实时识别", iconCaption},
 	{"refinement", "AI 润色", "本地优先，失败时保留 ASR 原文", iconSparkle},
 	{"firmware", "固件安装", "通过 USB 安装随应用提供的固件", iconChip},
@@ -168,6 +175,7 @@ func (v *View) Draw(c *ui.Context) {
 	if !v.Loaded {
 		v.Config = v.Snapshot.Config
 		v.ASR = v.Snapshot.ASR
+		v.Packs = v.Snapshot.Packs
 		v.Jev = v.Snapshot.Jev
 		v.Loaded = true
 	}
@@ -650,7 +658,7 @@ func (v *View) firmware(c *ui.Context) {
 }
 
 func (v *View) vocabulary(c *ui.Context) {
-	tabs := []string{fmt.Sprintf("词条 · %d", len(v.Snapshot.Terms)), fmt.Sprintf("替换词 · %d", len(v.Snapshot.Replacements)), "Jev 判断"}
+	tabs := []string{fmt.Sprintf("词条 · %d", len(v.Snapshot.Terms)), fmt.Sprintf("替换词 · %d", len(v.Snapshot.Replacements)), "Jev 判断", "公共词库"}
 	ui.Row(c).Gap(10).Children(func() {
 		segmented(c, "vocab-tabs", &v.vocabTab, tabs)
 		ui.Box(c).Grow(1)
@@ -671,7 +679,11 @@ func (v *View) vocabulary(c *ui.Context) {
 	case 2:
 		v.judge(c)
 		return
+	case 3:
+		v.wordlists(c)
+		return
 	}
+	notice(c, "public-summary", publicSummary(v.Snapshot.Packs), false)
 	notice(c, "vocab", "词条帮助 Apple 本地识别、分词和 AI 润色认出专有名词：下一次语音优先选取锁定和高权重词条，再用替换目标补齐 Top 100；锁定词不能被 AI 自动删除。", false)
 	title := "添加词条"
 	if v.editing != "" {
@@ -699,7 +711,7 @@ func (v *View) vocabulary(c *ui.Context) {
 	group(c, "terms", fmt.Sprintf("词条 · %d", len(v.Snapshot.Terms)), nil, func() {
 		if len(v.Snapshot.Terms) == 0 {
 			row(c, "none", func() {
-				ui.Text(c, "词库为空。添加专有名词、产品名或人名，提升识别与润色的准确度。").FontSize(13).TextColor(colMuted)
+				ui.Text(c, "还没有个人词条。添加专有名词、产品名或人名，让纠错更贴合你的用语。").FontSize(13).TextColor(colMuted)
 			})
 		}
 		for _, t := range v.Snapshot.Terms {

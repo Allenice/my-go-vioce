@@ -21,6 +21,9 @@ type Candidate struct {
 	Match string `json:"match"`
 	// Boundary is a segmentation hint, never permission to replace a word.
 	Boundary string `json:"boundary,omitempty"`
+	// Public sources are background suggestions, never personal-name protection.
+	Source string `json:"source,omitempty"`
+	Rank   int    `json:"rank,omitempty"`
 }
 
 // maxCandidates bounds the hints of one prompt.
@@ -48,17 +51,29 @@ func Candidates(text string, terms []string) []Candidate {
 }
 
 func candidateAnalysis(text string, terms []string) ([]Candidate, []segmentation.Token) {
-	spans := Spans(text, terms)
+	return candidateEvidenceAnalysis(text, Evidence{Personal: terms, Text: text})
+}
+
+func candidateEvidenceAnalysis(text string, evidence Evidence) ([]Candidate, []segmentation.Token) {
+	spans := evidence.Spans(text)
 	var tokens []segmentation.Token
-	if len(terms) > 0 && len([]rune(text)) <= 8000 {
-		tokens, _ = segmentation.Cut(text, terms...)
+	if (len(evidence.Personal) > 0 || len(evidence.Public) > 0) && len([]rune(text)) <= 8000 {
+		tokens, _ = segmentation.Cut(text, evidence.Personal...)
 	}
 	if len(tokens) > 0 {
 		for i := range spans {
 			spans[i].Boundary = segmentation.Boundary(tokens, spans[i].Start, spans[i].End)
 		}
 		rank := map[string]int{"word": 0, "words": 1, "partial": 2}
-		slices.SortStableFunc(spans, func(a, b Span) int { return rank[a.Boundary] - rank[b.Boundary] })
+		slices.SortStableFunc(spans, func(a, b Span) int {
+			if (a.Source == "") != (b.Source == "") {
+				if a.Source == "" {
+					return -1
+				}
+				return 1
+			}
+			return rank[a.Boundary] - rank[b.Boundary]
+		})
 	}
 	var out []Candidate
 	seen := map[string]bool{}
@@ -78,58 +93,8 @@ func candidateAnalysis(text string, terms []string) ([]Candidate, []segmentation
 // Spans is Candidates at every place they occur, so that each can be
 // judged and replaced on its own.
 func Spans(text string, terms []string) []Span {
-	runes := []rune(text)
-	known := map[string]bool{}
-	protected := make([]bool, len(runes))
-	var han []string
-	for _, t := range terms {
-		t = strings.TrimSpace(t)
-		known[t] = true
-		tr := []rune(t)
-		if len(tr) >= 2 {
-			for start := 0; start+len(tr) <= len(runes); start++ {
-				if slices.Equal(runes[start:start+len(tr)], tr) {
-					for j := start; j < start+len(tr); j++ {
-						protected[j] = true
-					}
-				}
-			}
-		}
-		if r := []rune(t); len(r) >= 2 && allHan(r) && !slices.Contains(han, t) {
-			han = append(han, t)
-		}
-	}
-	slices.SortStableFunc(han, func(a, b string) int { return len([]rune(b)) - len([]rune(a)) })
-	readings := make([][]string, len(runes))
-	for i, r := range runes {
-		if unicode.Is(unicode.Han, r) {
-			readings[i] = pinyin.SinglePinyin(r, pinyinArgs)
-		}
-	}
-	var out []Span
-	for _, term := range han {
-		tr := []rune(term)
-		termReadings := make([][]string, len(tr))
-		spelled := make([]string, len(tr))
-		for i, r := range tr {
-			termReadings[i] = pinyin.SinglePinyin(r, pinyinArgs)
-			if len(termReadings[i]) > 0 {
-				spelled[i] = termReadings[i][0]
-			}
-		}
-		for i := 0; i+len(tr) <= len(runes); i++ {
-			span := string(runes[i : i+len(tr)])
-			if known[span] || slices.Contains(protected[i:i+len(tr)], true) {
-				continue
-			}
-			match := soundMatch(readings[i:i+len(tr)], termReadings)
-			if match == "" {
-				continue
-			}
-			out = append(out, Span{Candidate{Heard: span, Term: term, Pinyin: strings.Join(spelled, " "), Match: match}, i, i + len(tr)})
-		}
-	}
-	return out
+	spans, _, _ := NewLexicon(terms).match(text)
+	return spans
 }
 
 // soundMatch compares the readings of a span with those of a term

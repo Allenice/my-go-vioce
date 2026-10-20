@@ -32,6 +32,7 @@ Go Voice combines AI Passport firmware with a MyGo-based macOS voice-input appli
 Firmware validation requires an activated ESP-IDF 5.5.3 environment. GUI validation requires the macOS toolchain and verified firmware artifacts described in the [application guide](../gui/README.md). Compilation and host tests do not establish hardware acceptance; the [desktop acceptance record](../gui/docs/acceptance.md) and [firmware validation record](go-voice-firmware.md#validation) list remaining checks.
 
 - [Third-party notices](THIRD_PARTY_NOTICES.md), [desktop dependency notices](../gui/docs/THIRD_PARTY_NOTICES.md), and [asset provenance](../assets/README.md): redistribution terms and reproduction steps. Independent authorization for the retained reference startup sound remains required before distribution.
+- [Vocabulary evaluation](../gui/docs/vocabulary-evaluation.md): retrieval regression seeds, opt-in model comparison and local performance.
 - [Changelog](CHANGELOG.md).
 - [Product website](../website/README.md): `go-voice.yzsaas.net` introduction and download pages, deployed with the `cf` CLI.
 - [CI validation](development/ci/CI-validation.md) and [firmware releases](development/ci/CI-build-and-release.md).

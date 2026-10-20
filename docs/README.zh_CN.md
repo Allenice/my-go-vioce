@@ -32,6 +32,7 @@ Go Voice 由 AI Passport 固件和基于 MyGo 的 macOS 语音输入应用组成
 固件验证需要已激活的 ESP-IDF 5.5.3 环境。GUI 验证需要 macOS 工具链及已验证的固件产物，详见[应用指南](../gui/README.zh_CN.md)。编译和 host tests 不能代替硬件验收；剩余检查见[桌面端验收记录](../gui/docs/acceptance.zh_CN.md)和[固件验证记录](go-voice-firmware.zh_CN.md#验证)。
 
 - [第三方声明](THIRD_PARTY_NOTICES.zh_CN.md)、[桌面端依赖声明](../gui/docs/THIRD_PARTY_NOTICES.zh_CN.md)和[资源来源](../assets/README.zh_CN.md)：再分发条款及资源复现方法。分发前仍须取得所保留参考开机音的独立授权。
+- [词库评测](../gui/docs/vocabulary-evaluation.zh_CN.md)：检索回归样例、可选模型对比和本地性能。
 - [变更记录](CHANGELOG.zh_CN.md)。
 - [产品网站](../website/README.zh_CN.md)：`go-voice.yzsaas.net` 介绍与下载页面，使用 `cf` CLI 部署。
 - [CI 验证](development/ci/CI-validation.zh_CN.md)与[固件发布](development/ci/CI-build-and-release.zh_CN.md)。

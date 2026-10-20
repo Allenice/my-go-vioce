@@ -66,7 +66,7 @@ func gapToken(text string) bool {
 }
 
 func (s *Store) correctSpaced(text string, written []bool, byFirst map[rune][]Replacement) (string, []bool) {
-	tokens, err := segmentation.CutKnown(text, s.Contextual(100)...)
+	tokens, err := segmentation.CutKnown(text, s.CorrectionTerms()...)
 	if err != nil {
 		return text, written
 	}

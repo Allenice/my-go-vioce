@@ -21,6 +21,7 @@ import (
 	"github.com/vfasky/my-ai-audio/gui/internal/refinement"
 	appui "github.com/vfasky/my-ai-audio/gui/internal/ui"
 	"github.com/vfasky/my-ai-audio/gui/internal/vocabulary"
+	"github.com/vfasky/my-ai-audio/gui/internal/wordlists"
 	"io"
 	"os"
 	"path/filepath"
@@ -36,6 +37,7 @@ type settings struct {
 	Refinement refinement.Config `json:"refinement"`
 	ASR        asr.Config        `json:"asr"`
 	Jev        jev.Config        `json:"jev"`
+	Packs      wordlists.Config  `json:"vocabulary_packs"`
 }
 type application struct {
 	ctx               context.Context
@@ -55,7 +57,9 @@ type application struct {
 	quitting          bool
 	refineCancel      context.CancelFunc
 	localReply        chan string
-	terms             []string
+	terms             []string // recognition hints, at most 100
+	correctionTerms   []string // complete vocabulary frozen when recording starts
+	sessionPacks      wordlists.Config
 	permissions       permission.Set
 	// online recognizes the session onlineID when an online engine is
 	// chosen; SpeechBridge still inserts its text.
@@ -425,6 +429,7 @@ func (a *application) initialize() {
 				a.view.Snapshot.Status = "无法打开系统设置"
 			}
 		},
+		ConfigurePacks:   a.configurePacks,
 		ExportVocabulary: a.exportVocabulary,
 		ConfigureASR:     a.configureASR,
 		TestASR:          a.testASR,
@@ -620,6 +625,7 @@ func (a *application) refresh() {
 func (a *application) syncCatalog() {
 	s := &a.view.Snapshot
 	s.Terms = append([]vocabulary.Term(nil), a.store.Terms...)
+	s.Packs = a.config.Packs
 	s.Replacements = append([]vocabulary.Replacement(nil), a.store.Replacements...)
 	s.Permissions = make(permission.Set, len(a.permissions))
 	for n, st := range a.permissions {
@@ -1176,6 +1182,8 @@ func (a *application) effects(effects []device.Effect) {
 			a.sendBluetooth(map[string]any{"type": "host_state", "state": e.State})
 		case "start":
 			a.terms = a.store.Contextual(100)
+			a.correctionTerms = a.store.CorrectionTerms()
+			a.sessionPacks = a.config.Packs
 			if a.config.ASR.Online() {
 				a.startOnline(e.ID)
 			} else {
@@ -1253,7 +1261,9 @@ func (a *application) refine(e device.Effect) {
 	reply := make(chan string, 1)
 	a.localReply = reply
 	cfg := a.config.Refinement
-	terms := append([]string(nil), a.terms...)
+	hints := append([]string(nil), a.terms...)
+	allTerms := append([]string(nil), a.correctionTerms...)
+	packs := a.sessionPacks
 	speech := a.speech
 	judge := a.config.Jev
 	corrections := a.store.Snapshot()
@@ -1262,9 +1272,35 @@ func (a *application) refine(e device.Effect) {
 		if corrections.NeedsSegmentation(prepared) {
 			prepared = corrections.CorrectSegmented(prepared)
 		}
+		var evidence refinement.Evidence
+		publicNote := ""
+		if cfg.Mode != "off" || judge.Enabled {
+			var err error
+			evidence, err = refinement.PrepareEvidence(ctx, prepared, allTerms, hints, packs)
+			if ctx.Err() != nil {
+				return
+			}
+			if errors.Is(err, refinement.ErrVocabularyLimit) {
+				a.post(func() {
+					if ctx.Err() != nil {
+						return
+					}
+					a.view.Snapshot.Status = "词库候选过多或文字过长，已保留本地纠正结果。"
+					a.effects(a.coordinator.Speech("refinement_done", e.ID, prepared, time.Now()))
+				})
+				return
+			}
+			if err != nil {
+				publicNote = "公共词库暂不可用，已继续使用个人词库。 "
+			}
+		}
+		if ctx.Err() != nil {
+			return
+		}
 		// Jev judges the spans that sound like a term first; refinement
 		// then leaves the ones it kept and decides the uncertain.
-		text, keep, note := judgeVocabulary(ctx, judge, prepared, terms)
+		text, keep, note := judgeVocabulary(ctx, judge, prepared, evidence)
+		note = publicNote + note
 		if cfg.Mode == "off" {
 			if text != prepared {
 				text = corrections.CorrectSegmented(text)
@@ -1278,7 +1314,7 @@ func (a *application) refine(e device.Effect) {
 			})
 			return
 		}
-		out, status := refinement.Run(ctx, cfg, text, terms, keychain.Store{}, func(ctx context.Context, prompt string) (string, error) {
+		out, status := refinement.RunEvidence(ctx, cfg, text, evidence, keychain.Store{}, func(ctx context.Context, prompt string) (string, error) {
 			if speech == nil {
 				return "", errors.New("speech unavailable")
 			}
@@ -1479,11 +1515,11 @@ func (a *application) deleteASRKey() {
 
 // judgeVocabulary runs the Jev check when on: the text with the likely
 // terms in place, the heard words to keep, and a note when it was skipped.
-func judgeVocabulary(ctx context.Context, c jev.Config, text string, terms []string) (string, []string, string) {
+func judgeVocabulary(ctx context.Context, c jev.Config, text string, evidence refinement.Evidence) (string, []string, string) {
 	if !c.Enabled {
 		return text, nil, ""
 	}
-	res, err := checkVocabulary(ctx, c, text, terms)
+	res, err := checkVocabulary(ctx, c, text, evidence)
 	if err != nil {
 		note := ""
 		if ctx.Err() == nil {
@@ -1497,17 +1533,17 @@ func judgeVocabulary(ctx context.Context, c jev.Config, text string, terms []str
 // checkVocabulary has Jev at the endpoint of c judge the spans of text that
 // sound like a vocabulary term, within jev.Timeout; on failure text goes on
 // unchanged.
-var checkVocabulary = func(ctx context.Context, c jev.Config, text string, terms []string) (jev.Result, error) {
+var checkVocabulary = func(ctx context.Context, c jev.Config, text string, evidence refinement.Evidence) (jev.Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, jev.Timeout)
 	defer cancel()
-	if len(refinement.Spans(text, terms)) == 0 {
+	if len(evidence.Spans(text)) == 0 {
 		return jev.Result{Text: text}, nil
 	}
 	key, err := (keychain.Store{}).Get(ctx, jev.KeyAccount(c))
 	if err != nil || key == "" {
 		return jev.Result{Text: text}, jev.ErrKey
 	}
-	return jev.Check(ctx, c, text, terms, key)
+	return jev.CheckEvidence(ctx, c, text, evidence, key)
 }
 
 func (a *application) setJevFeedback(c jev.Config, msg string, ok bool) {

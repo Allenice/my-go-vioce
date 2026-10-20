@@ -6,6 +6,10 @@
 
 ## Unreleased
 
+- Ship a read-only common-word pack (96,336 Jieba terms) and an IT pack (12,854 THUOCL terms), both enabled by default. Manage them in Vocabulary > Public Dictionaries; changes apply to the next dictation. Precompiled readings load into a cached worker index. Public candidates retain source/frequency evidence without becoming protected personal names; they never consume recognition hints or overwrite personal vocabulary. Bundle pinned-source provenance and MIT attribution. Real model correction quality remains unverified.
+
+- Separate go-voice recognition hints from correction vocabulary: Apple recognition keeps Top 100, while local pinyin retrieval searches all terms and replacement targets. Preserve complete competing candidate sets, correctly spelled names and active-session snapshots; retain the original when context does not support a correction. Add 40 authored regression seeds, an opt-in live evaluation reporting recovered and broken cases separately, and retrieval benchmarks. Live correction quality remains unverified.
+
 - Prepare `go-voice` 0.4.0 with firmware version reminders, local word-boundary vocabulary correction, improved Jev checks and lower standby draw; refresh the website copy and 0.4.0 download links.
 
 - Show the device and bundled firmware versions on the firmware page, with an update reminder and a sidebar badge when the connected device is older than the copy packaged in go-voice. Device firmware is now 0.2.0 so that reminder can distinguish this standby-power build from 0.1.0.

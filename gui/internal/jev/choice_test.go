@@ -80,6 +80,28 @@ func TestChoiceComparesHomophonesAndOverlappingNames(t *testing.T) {
 	}
 }
 
+func TestCheckUsesCompleteRetrievedCompetitorsBeyondTop100(t *testing.T) {
+	cfg, seen := serve(t, func(string, string) float64 { return 0.04 })
+	var all []string
+	for i := 0; i < 120; i++ {
+		all = append(all, "未命中条目"+string(rune(0x4e00+i)))
+	}
+	all = append(all, "伊智", "益智", "私域宝")
+	text := "大家的意见一致"
+	terms, err := refinement.NewLexicon(all).Retrieve(text, all[:100])
+	if err != nil || !slices.Equal(terms, []string{"伊智", "益智"}) {
+		t.Fatalf("retrieval: %v %v", terms, err)
+	}
+	res, err := Check(context.Background(), cfg, text, terms, "test-key")
+	if err != nil || res.Text != text || len(res.Decisions) != 2 || len(*seen) != 1 {
+		t.Fatalf("competing choices: %+v %v", res, err)
+	}
+	body, _ := json.Marshal((*seen)[0])
+	if strings.Contains(string(body), "未命中条目") || strings.Contains(string(body), "私域宝") {
+		t.Fatal("unrelated vocabulary sent")
+	}
+}
+
 func TestDiffuseChoicesDoNotMeanKeep(t *testing.T) {
 	groups := groupSpans(refinement.Spans("一致", []string{"伊智", "益智", "意志"}))
 	b := []byte(`{"answers":{"s1":{"type":"choice","choice":"c1","probabilities":{"keep":0.25,"c1":0.25,"c2":0.25,"c3":0.25}}}}`)

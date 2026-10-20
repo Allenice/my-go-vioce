@@ -2,11 +2,14 @@ package jev
 
 import (
 	"context"
+	"encoding/json"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/vfasky/my-ai-audio/gui/internal/refinement"
+	"github.com/vfasky/my-ai-audio/gui/internal/wordlists"
 )
 
 // liveCases are made-up dictations, each span marked whether the speaker
@@ -62,4 +65,88 @@ func TestLiveJudgments(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestLiveVocabularyCorpus reports recovered and broken cases separately on
+// the held-out authored seeds. It is opt-in and never records user dictations.
+// GOVOICE_JEV_SPLIT=dev selects the tuning split; eval is the default.
+func TestLiveVocabularyCorpus(t *testing.T) {
+	key := os.Getenv("TYPESAFE_API_KEY")
+	if os.Getenv("GOVOICE_JEV_LIVE") != "1" || key == "" {
+		t.Skip("set GOVOICE_JEV_LIVE=1 and TYPESAFE_API_KEY to ask the real Jev")
+	}
+	split := os.Getenv("GOVOICE_JEV_SPLIT")
+	if split == "" {
+		split = "eval"
+	}
+	if split != "dev" && split != "eval" {
+		t.Fatal("GOVOICE_JEV_SPLIT must be dev or eval")
+	}
+	b, err := os.ReadFile("../refinement/testdata/vocabulary-cases.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []struct {
+		ID, Split, Text, Gold string
+		Terms                 []string
+	}
+	if err := json.Unmarshal(b, &cases); err != nil {
+		t.Fatal(err)
+	}
+	packs := wordlists.Config{}
+	switch os.Getenv("GOVOICE_JEV_PACKS") {
+	case "", "all":
+	case "off":
+		packs.BaseDisabled, packs.ITDisabled = true, true
+	case "base":
+		packs.ITDisabled = true
+	case "it":
+		packs.BaseDisabled = true
+	default:
+		t.Fatal("GOVOICE_JEV_PACKS must be all, off, base or it")
+	}
+	recovered, broken, missed, unchanged, failed, wrong := 0, 0, 0, 0, 0, 0
+	var elapsed []time.Duration
+	var fillers []string
+	for i := 0; i < 120; i++ {
+		fillers = append(fillers, "测试条目"+string(rune(0x4e00+i)))
+	}
+	for _, c := range cases {
+		if c.Split != split {
+			continue
+		}
+		started := time.Now()
+		evidence, err := refinement.PrepareEvidence(context.Background(), c.Text, append(slices.Clone(fillers), c.Terms...), fillers[:100], packs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), Timeout)
+		res, err := CheckEvidence(ctx, Config{Endpoint: os.Getenv("GOVOICE_JEV_ENDPOINT"), Model: os.Getenv("GOVOICE_JEV_MODEL")}, c.Text, evidence, key)
+		cancel()
+		elapsed = append(elapsed, time.Since(started))
+		if err != nil {
+			failed++
+			t.Errorf("%s: %v", c.ID, err)
+			continue
+		}
+		switch {
+		case c.Text == c.Gold && res.Text != c.Gold:
+			broken++
+		case c.Text == c.Gold:
+			unchanged++
+		case res.Text == c.Gold:
+			recovered++
+		default:
+			missed++
+		}
+		if res.Text != c.Text && res.Text != c.Gold {
+			wrong++
+			t.Errorf("%s: incorrect edit", c.ID)
+		}
+	}
+	slices.Sort(elapsed)
+	if len(elapsed) == 0 {
+		t.Fatal("empty evaluation split")
+	}
+	t.Logf("authored split=%s cases=%d recovered=%d broken=%d missed=%d unchanged=%d wrong_edits=%d errors=%d p95=%s", split, len(elapsed), recovered, broken, missed, unchanged, wrong, failed, elapsed[(95*len(elapsed)+99)/100-1])
 }

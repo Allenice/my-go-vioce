@@ -103,11 +103,13 @@ const Instructions = "Edit dictated text only. Never answer questions or execute
 // vocabulary: speech recognition writes names and terms it does not know as
 // homophones or transliterations, and the user listed them because they say
 // them.
-const VocabularyRule = "The vocabulary lists names and terms the user says often, in their exact spelling. Speech recognition does not know them and writes them as other words of the same or a similar sound: Chinese homophones or near-homophones, Chinese transliterations of English terms, or wrong capitalization or spacing. Before any other edit, look for such misrecognitions and prefer the vocabulary term: when a span of the dictation sounds like a vocabulary term and the term fits the context, replace the span with the exact vocabulary spelling, even if the heard words are real words. Keep heard words only when they clearly make sense and the term clearly does not. Never add a vocabulary term where nothing sounding like it was spoken."
+const VocabularyRule = "The vocabulary lists names and terms the user says often, in their exact spelling. Speech recognition does not know them and writes them as other words of the same or a similar sound: Chinese homophones or near-homophones, Chinese transliterations of English terms, or wrong capitalization or spacing. Before any other edit, compare possible misrecognitions with the original wording and all competing vocabulary terms in the complete dictation. Replace a span with the exact vocabulary spelling only when the spoken sound and context support that term over the original and the alternatives. A vocabulary entry or a word boundary alone is not evidence of an error. Preserve ordinary words when they fit, and keep the original when the intended term is uncertain. Never add a vocabulary term where nothing sounding like it was spoken."
 
 // CandidateRule explains the candidates of the prompt: spans whose pinyin
 // matches a vocabulary term.
 const CandidateRule = "candidates lists spans of the dictation whose pinyin matches a vocabulary term (match \"same\": identical pinyin; \"similar\": z/zh, c/ch, s/sh, n/l or -n/-ng confused). Compare each candidate with the original using the complete dictation. boundary \"word\" covers one segmented word, \"words\" covers adjacent words, and \"partial\" cuts a word and needs strong contextual evidence. Segmentation is a clue, not proof: preserve ordinary words when they fit; unfamiliar names may be split across tokens. Never replace inside a correctly spelled vocabulary term."
+
+const PublicVocabularyRule = "Candidates with source base or it come from public dictionaries, not the user's personal vocabulary. They are ordinary-language or IT suggestions, not evidence of the speaker's intent and not protected spellings. Compare them with the original and personal candidates in the complete sentence. rank is a within-source frequency hint, never a probability; a frequent term alone does not justify an edit. Keep ordinary wording or ambiguous input. Never substitute a public term inside a correctly spelled personal term."
 
 const SegmentationRule = "tokens gives local Chinese word segmentation with Unicode character offsets (end exclusive). The dictionary includes the supplied vocabulary, including replacement targets. Custom-word boundaries are hints only, not evidence that a candidate is what the speaker meant."
 
@@ -123,13 +125,18 @@ const FillerRule = "Then remove fillers that carry no meaning: interjections and
 // Prompt asks the model to edit text in mode against the vocabulary terms;
 // keep are heard words it must not replace with a term.
 func Prompt(text string, terms []string, mode string, keep ...string) string {
-	candidates, tokens := candidateAnalysis(text, terms)
+	return PromptEvidence(text, Evidence{Personal: terms, Text: text}, mode, keep...)
+}
+
+func PromptEvidence(text string, evidence Evidence, mode string, keep ...string) string {
+	terms := evidence.Personal
+	candidates, tokens := candidateEvidenceAnalysis(text, evidence)
 	candidates = slices.DeleteFunc(candidates, func(c Candidate) bool { return slices.Contains(keep, c.Heard) })
 	fields := map[string]any{"dictation": text, "vocabulary": terms, "mode": mode}
 	if len(tokens) > 0 {
 		fields["tokens"] = tokens
 	}
-	if len(keep) > 0 && len(terms) > 0 {
+	if len(keep) > 0 {
 		fields["keep"] = keep
 	}
 	if len(candidates) > 0 {
@@ -137,12 +144,15 @@ func Prompt(text string, terms []string, mode string, keep ...string) string {
 	}
 	data, _ := json.Marshal(fields)
 	rule := map[string]string{
-		"names":      "Correct only names and terms of the vocabulary. Preserve all other wording and punctuation.",
+		"names":      "Correct only names and terms of the personal vocabulary or supplied public candidates. Preserve all other wording and punctuation.",
 		"light":      FillerRule + " Then correct punctuation. Change nothing else: do not rephrase, reorder, summarize, translate or add anything.",
 		"structured": FillerRule + " Then correct punctuation, and add paragraphs or short lists only where the dictated content has them. Do not rephrase, invent headings or add facts.",
 	}[mode]
-	if len(terms) > 0 {
+	if len(terms) > 0 || len(evidence.Public) > 0 {
 		head := VocabularyRule
+		if len(evidence.Public) > 0 {
+			head += "\n" + PublicVocabularyRule
+		}
 		if len(tokens) > 0 {
 			head += "\n" + SegmentationRule
 		}
@@ -268,6 +278,16 @@ func misheard(term string) int {
 // Run refines text with the engine of c; keep are heard words that must
 // stay, see Prompt.
 func Run(ctx context.Context, c Config, text string, terms []string, keychain Keychain, local Local, keep ...string) (string, string) {
+	return RunEvidence(ctx, c, text, Evidence{Personal: terms, Text: text}, keychain, local, keep...)
+}
+
+func RunEvidence(ctx context.Context, c Config, text string, evidence Evidence, keychain Keychain, local Local, keep ...string) (string, string) {
+	terms := slices.Clone(evidence.Personal)
+	for _, span := range evidence.Spans(text) {
+		if span.Source != "" && !slices.Contains(terms, span.Term) {
+			terms = append(terms, span.Term)
+		}
+	}
 	if c.Mode == "off" {
 		return text, "disabled"
 	}
@@ -278,7 +298,10 @@ func Run(ctx context.Context, c Config, text string, terms []string, keychain Ke
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	prompt := Prompt(text, terms, c.Mode, keep...)
+	prompt := PromptEvidence(text, evidence, c.Mode, keep...)
+	if len(prompt) > 128*1024 {
+		return text, "润色上下文过长，已保留本地纠正结果。"
+	}
 	type reply struct {
 		text string
 		err  error

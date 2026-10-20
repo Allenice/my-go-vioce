@@ -5,12 +5,21 @@ import (
 	"strings"
 )
 
-// Contextual returns the recognition/refinement vocabulary. Explicit terms keep
-// their lock/weight order; unique replacement targets fill remaining slots.
+// Contextual returns at most 100 recognition hints. Explicit terms keep their
+// lock/weight order; unique replacement targets fill remaining slots.
 // Wrong spellings are never injected into recognition or treated as known terms.
 func (s *Store) Contextual(n int) []string {
 	n = max(0, min(n, 100))
-	out := s.Top(n)
+	return s.appendTargets(s.Top(n), n)
+}
+
+// CorrectionTerms returns the complete, ranked vocabulary, including unique
+// replacement targets. It is a local retrieval source, not a model prompt.
+func (s *Store) CorrectionTerms() []string {
+	return s.appendTargets(s.ranked(len(s.Terms)), len(s.Terms)+len(s.Replacements))
+}
+
+func (s *Store) appendTargets(out []string, n int) []string {
 	seen := map[string]bool{}
 	for _, term := range out {
 		seen[Normalize(term)] = true

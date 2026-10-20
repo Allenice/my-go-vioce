@@ -126,13 +126,17 @@ type Result struct {
 // Check asks Jev about the spans of text that sound like a term and
 // applies the answers. Without such spans it sends nothing.
 func Check(ctx context.Context, c Config, text string, terms []string, key string) (Result, error) {
+	return CheckEvidence(ctx, c, text, refinement.Evidence{Personal: terms, Text: text}, key)
+}
+
+func CheckEvidence(ctx context.Context, c Config, text string, evidence refinement.Evidence, key string) (Result, error) {
 	if err := ctx.Err(); err != nil {
 		return Result{Text: text}, err
 	}
 	if utf8.RuneCountInString(text) > maxTextRunes {
 		return Result{Text: text}, ErrTooLong
 	}
-	spans := refinement.Spans(text, terms)
+	spans := evidence.Spans(text)
 	groups := groupSpans(spans)
 	if len(groups) == 0 {
 		return Result{Text: text}, nil
@@ -144,7 +148,7 @@ func Check(ctx context.Context, c Config, text string, terms []string, key strin
 	if key == "" {
 		return Result{Text: text}, ErrKey
 	}
-	tokens, err := segmentation.Cut(text, terms...)
+	tokens, err := segmentation.Cut(text, evidence.Personal...)
 	if err != nil {
 		return Result{Text: text}, ErrSegmentation
 	}

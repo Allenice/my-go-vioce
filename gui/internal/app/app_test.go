@@ -419,20 +419,20 @@ func TestLoginLaunchShowsMissingPermissions(t *testing.T) {
 func TestJudgeVocabularyAppliesOrSkips(t *testing.T) {
 	restore := checkVocabulary
 	defer func() { checkVocabulary = restore }()
-	checkVocabulary = func(_ context.Context, _ jev.Config, text string, _ []string) (jev.Result, error) {
+	checkVocabulary = func(_ context.Context, _ jev.Config, text string, _ refinement.Evidence) (jev.Result, error) {
 		return jev.Result{Text: strings.Replace(text, "一致科技", "伊智科技", 1), Keep: []string{"一致"}}, nil
 	}
-	text, keep, note := judgeVocabulary(context.Background(), jev.Config{Enabled: true}, "一致科技意见一致", []string{"伊智"})
+	text, keep, note := judgeVocabulary(context.Background(), jev.Config{Enabled: true}, "一致科技意见一致", refinement.Evidence{Personal: []string{"伊智"}, Text: "一致科技意见一致"})
 	if text != "伊智科技意见一致" || len(keep) != 1 || note != "" {
 		t.Fatalf("%q %v %q", text, keep, note)
 	}
-	if text, keep, _ := judgeVocabulary(context.Background(), jev.Config{}, "一致科技", []string{"伊智"}); text != "一致科技" || keep != nil {
+	if text, keep, _ := judgeVocabulary(context.Background(), jev.Config{}, "一致科技", refinement.Evidence{Personal: []string{"伊智"}, Text: "一致科技"}); text != "一致科技" || keep != nil {
 		t.Fatalf("off: %q %v", text, keep)
 	}
-	checkVocabulary = func(_ context.Context, _ jev.Config, text string, _ []string) (jev.Result, error) {
+	checkVocabulary = func(_ context.Context, _ jev.Config, text string, _ refinement.Evidence) (jev.Result, error) {
 		return jev.Result{Text: "never used"}, &jev.StatusError{Code: 401}
 	}
-	text, keep, note = judgeVocabulary(context.Background(), jev.Config{Enabled: true}, "一致科技", []string{"伊智"})
+	text, keep, note = judgeVocabulary(context.Background(), jev.Config{Enabled: true}, "一致科技", refinement.Evidence{Personal: []string{"伊智"}, Text: "一致科技"})
 	if text != "一致科技" || keep != nil || !strings.Contains(note, "HTTP 401") {
 		t.Fatalf("failure: %q %v %q", text, keep, note)
 	}

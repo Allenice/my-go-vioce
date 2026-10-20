@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "readings": "go-pinyin v0.21.0; all character readings, no tones",
+  "sources": [
+    {
+      "id": "base",
+      "url": "https://github.com/yanyiwu/gojieba/blob/v1.4.7/deps/cppjieba/dict/jieba.dict.utf8",
+      "license": "MIT",
+      "input_sha256": "3043b77068e09c9904f27cad82f12b6ebe9dbdb5aeff3b25e45ab7f9c1122b55",
+      "output_sha256": "cc07931c79e5a875d9c96dacf5a949c4f8a471880111bb8bb8233553dfa3a8fa",
+      "input_rows": 348982,
+      "terms": 96336,
+      "min_frequency": 10
+    },
+    {
+      "id": "it",
+      "url": "https://github.com/thunlp/THUOCL/blob/a30ce79d895d01ab5132a5c74c29703ff7efb4cc/data/THUOCL_IT.txt",
+      "license": "MIT",
+      "input_sha256": "e8cd42c9f5559735fa3bfb91515cbe051f991efd4a803038a1d5c0da85af3526",
+      "output_sha256": "6d3c608d4e78faf98669bbc39d96e8c40b61707f2deee8c61ac11dcc66922acd",
+      "input_rows": 16000,
+      "terms": 12854,
+      "min_frequency": 1
+    }
+  ]
+}
