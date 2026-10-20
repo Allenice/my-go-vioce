@@ -6,9 +6,11 @@ import "github.com/egoist/mygo/ui"
 // cards, inset black wells, white primary capsules and a single orange accent
 // reserved for live audio.
 var (
-	colCanvas       = ui.Hex("#0A0A0A")
-	colSidebar      = ui.Hex("#141414")
-	colCard         = ui.Hex("#1C1C1C")
+	colCanvas  = ui.Hex("#0A0A0A")
+	colSidebar = ui.Hex("#141414")
+	colCard    = ui.Hex("#1C1C1C")
+	// colHUD is the dictation capsule and its preview.
+	colHUD          = ui.Hex("#121212")
 	colWell         = ui.Hex("#0B0B0B")
 	colPill         = ui.Hex("#262626")
 	colPillHover    = ui.Hex("#303030")
@@ -81,7 +83,11 @@ var (
 	iconCursor   = icon(`<path d="M3.5 2.5l9 4.2-3.9 1.3-1.3 3.9z"/><path d="M8.6 8.6l3.6 3.6"/>`)
 	iconCheck    = icon(`<path d="M3.5 8.4l3 3 6-6.8"/>`)
 	iconInfo     = icon(`<circle cx="8" cy="8" r="6.2"/><path d="M8 7.2v4M8 4.9v.1"/>`)
+	iconPower    = icon(`<path d="M8 2v5.5"/><path d="M4.8 4.2a5 5 0 1 0 6.4 0"/>`)
 	iconDownload = icon(`<path d="M8 2.5v8M4.8 7.5L8 10.7l3.2-3.2M3 13.5h10"/>`)
+	iconCaption  = icon(`<rect x="1.8" y="3" width="12.4" height="10" rx="2.2"/><path d="M4.5 7h3M9.5 7h2M4.5 10h2M8.5 10h3"/>`)
+	iconChevron  = icon(`<path d="M4.5 6.2L8 9.8l3.5-3.6"/>`)
+	iconSliders  = icon(`<path d="M2.5 4.5h1.2M7.3 4.5h6.2M2.5 11.5h6.2M12.3 11.5h1.2"/><circle cx="5.5" cy="4.5" r="1.8"/><circle cx="10.5" cy="11.5" r="1.8"/>`)
 )
 
 type pillKind int

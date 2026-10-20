@@ -6,6 +6,16 @@
 
 ## Unreleased
 
+- Add an optional Jev check of homophone corrections to the `go-voice` vocabulary (new Jev tab, off by default). For each span that sounds like a Chinese vocabulary term, TypeSafe's Jev returns the probability that you said the term: likely spans are replaced by code, unlikely ones are kept and AI refinement is told not to change them, and only the uncertain are left to refinement. It works with TypeSafe or any provider of its System One API, such as Alipay MaaS (`jev-1.13`), whose endpoint and model you can enter. It sends the matching spans with some surrounding text and the matching terms to that provider, never audio; it is skipped after 4 seconds or on failure. Each endpoint's API key is kept in Keychain, and Test Connection shows how Jev judges a fixed sample.
+
+- The `go-voice` dictation capsule now shows the words being recognized on its own fixed-width line instead of only asking you to speak: the newest words slide in at the right and older ones scroll out to the left. Apple's local recognizer now reports the words about once a second while you speak, instead of all at once after you release the key. The preview bubble above it now appears only during AI refinement, with the ASR original to be inserted. The capsule and its bubble no longer cast a shadow.
+
+- Add an Open at Login switch to the new General page of `go-voice` (the App section of the sidebar). It adds the app to the macOS login items, follows changes made in System Settings, and guides you to Login Items when macOS asks you to allow it. Started at login, go-voice stays in the menu bar without opening its window, unless a required permission is missing.
+
+- Add online speech recognition to `go-voice`: a drop-down on the new Speech Recognition page chooses Apple's local SpeechAnalyzer (default) or an Alipay MaaS model: Fun-ASR or Paraformer v2, which stream the audio while you speak and show text as it is recognized, or the non-streaming Qwen3-ASR-Flash, which recognizes the whole recording after you release the key. Their API key is kept in Keychain, Test Connection sends only half a second of silence, and a failure ends the session with its reason instead of falling back. Choosing an online model sends each session's audio to Alipay MaaS.
+
+- Add a Quit button to the right of the `go-voice` sidebar's connection card, so the app can be quit from the window as well as the menu bar. It is disabled while firmware is installing, so a write cannot be interrupted.
+
 - Add one-click Import and Export of the `go-voice` vocabulary as JSON, next to the Terms and Replacements tabs. Export writes terms with their lock and weight and all replacements to one file; Import merges a file, adding new entries, updating existing ones, removing nothing and skipping invalid or conflicting entries, then reports what it did. A file of another format leaves the vocabulary unchanged.
 
 - Say why `go-voice` ended a session whose audio broke off: no audio for 3 seconds, the 5-minute limit, a sequence past the session limit, too many out-of-order frames, or more than 100 lost frames, in Chinese, instead of one English message for all of them. The limits themselves are unchanged.

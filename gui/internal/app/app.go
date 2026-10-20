@@ -10,8 +10,10 @@ import (
 	"github.com/egoist/mygo/plugins/updater"
 	updaterui "github.com/egoist/mygo/plugins/updater/native"
 	nativeui "github.com/egoist/mygo/ui"
+	"github.com/vfasky/my-ai-audio/gui/internal/asr"
 	"github.com/vfasky/my-ai-audio/gui/internal/device"
 	"github.com/vfasky/my-ai-audio/gui/internal/firmware"
+	"github.com/vfasky/my-ai-audio/gui/internal/jev"
 	"github.com/vfasky/my-ai-audio/gui/internal/permission"
 	"github.com/vfasky/my-ai-audio/gui/internal/platform/bridge"
 	"github.com/vfasky/my-ai-audio/gui/internal/platform/keychain"
@@ -29,6 +31,8 @@ import (
 type settings struct {
 	Peripheral string            `json:"peripheral"`
 	Refinement refinement.Config `json:"refinement"`
+	ASR        asr.Config        `json:"asr"`
+	Jev        jev.Config        `json:"jev"`
 }
 type application struct {
 	ctx               context.Context
@@ -50,6 +54,10 @@ type application struct {
 	localReply        chan string
 	terms             []string
 	permissions       permission.Set
+	// online recognizes the session onlineID when an online engine is
+	// chosen; SpeechBridge still inserts its text.
+	online   *asr.Session
+	onlineID uint32
 	// onboarded is set once the first complete permission report decided
 	// whether to open the permissions page.
 	onboarded bool
@@ -60,6 +68,9 @@ type application struct {
 	hudUntil  time.Time
 	escapeSet bool
 	tray      *mygo.Tray
+	// atLogin: the system started go-voice at login, so it stays in the
+	// menu bar unless the onboarding needs the window.
+	atLogin bool
 }
 
 // Run starts the app; icon is the packaged PNG app icon shown in the sidebar
@@ -85,9 +96,10 @@ func Run(icon, tray []byte) {
 		if bitmap, err := nativeui.DecodeBitmap(icon); err == nil {
 			a.view.AppIcon = bitmap
 		}
+		a.atLogin = mygo.App.WasOpenedAtLogin()
 		a.initialize()
 		a.window = mygo.NewWindow(mygo.WindowOptions{
-			Title: "go-voice", Width: 1120, Height: 840, MinWidth: 920, MinHeight: 660,
+			Title: "go-voice", Width: 1120, Height: 840, MinWidth: 920, MinHeight: 660, Hidden: a.atLogin,
 			TitleBarStyle: mygo.TitleBarHiddenInset, TitleBarHeight: appui.TitleBarHeight,
 			BackgroundColor: "#0A0A0A",
 			Content:         nativeui.View(a.view.Draw),
@@ -101,11 +113,12 @@ func Run(icon, tray []byte) {
 			e.PreventDefault()
 			a.window.Hide()
 		})
-		mygo.App.Focus()
+		if !a.atLogin {
+			mygo.App.Focus()
+		}
 		a.startTray(tray)
-		// The capsule paints its own shadow. macOS would trace a window shadow
-		// around the alpha of that soft shadow too, a dark outline on light
-		// backgrounds.
+		// The capsule is drawn without a shadow, and the panel has none either:
+		// macOS would trace one around the transparent window's alpha.
 		a.hud = mygo.NewWindow(mygo.WindowOptions{
 			Title: "go-voice dictation", Panel: true, Hidden: true, Frameless: true, Transparent: true,
 			DisableResize: true, DisableShadow: true, Width: appui.HUDWidth, Height: appui.HUDHeight,
@@ -167,8 +180,65 @@ func (a *application) showMain() {
 	if a.window == nil {
 		return
 	}
+	a.readLoginItem()
 	a.window.Show()
 	mygo.App.Focus()
+}
+
+// The system's login item of go-voice; tests replace them.
+var (
+	setOpenAtLogin = func(open bool) error { return mygo.App.SetOpenAtLogin(open) }
+	openAtLogin    = func() bool { return mygo.App.OpenAtLogin() }
+)
+
+const loginItemsURL = "x-apple.systempreferences:com.apple.LoginItems-Settings.extension"
+
+// setLoginItem adds go-voice to the login items, or removes it, then shows
+// what the system now has: a new login item may wait for approval.
+func (a *application) setLoginItem(open bool) {
+	err := setOpenAtLogin(open)
+	s := &a.view.Snapshot
+	s.OpenAtLogin = openAtLogin()
+	s.LoginApproval = open && !s.OpenAtLogin && loginNeedsApproval(err)
+	s.LoginFeedback, s.LoginFeedbackOK = loginMessage(open, err)
+	a.refresh()
+}
+
+// readLoginItem catches up with changes made in System Settings, such as
+// allowing a login item that waited for approval.
+func (a *application) readLoginItem() {
+	s := &a.view.Snapshot
+	s.OpenAtLogin = openAtLogin()
+	if s.LoginApproval && s.OpenAtLogin {
+		s.LoginApproval = false
+		s.LoginFeedback, s.LoginFeedbackOK = loginMessage(true, nil)
+	}
+}
+
+// loginNeedsApproval: MyGo registered the login item, but the user has to
+// allow it in System Settings > General > Login Items.
+func loginNeedsApproval(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "Login Items")
+}
+
+// loginMessage says in the interface's language how a change of the login
+// item ended.
+func loginMessage(open bool, err error) (string, bool) {
+	switch {
+	case err == nil && open:
+		return "已开启：下次登录 Mac 时 go-voice 会在菜单栏后台启动。", true
+	case err == nil:
+		return "已关闭登录时打开。", true
+	case loginNeedsApproval(err):
+		return "已添加到登录项，等待在系统设置中允许。", false
+	case strings.Contains(err.Error(), "app bundle"):
+		return "无法更改：请启动打包后的 go-voice.app，而不是直接运行可执行文件。", false
+	}
+	verb := "无法关闭"
+	if open {
+		verb = "无法开启"
+	}
+	return verb + "登录时打开：" + strings.TrimPrefix(err.Error(), "mygo: "), false
 }
 
 // checkForUpdates opens the update window, or says why this build cannot
@@ -227,6 +297,10 @@ func (a *application) initialize() {
 			a.config = s
 		}
 	}
+	a.config.ASR = asr.Normalize(a.config.ASR)
+	a.config.Jev = jev.Normalize(a.config.Jev)
+	a.applyASR()
+	a.readLoginItem()
 	a.view.Actions = appui.Actions{
 		FirmwareScan: func() {
 			if a.installState.Scan() {
@@ -298,7 +372,20 @@ func (a *application) initialize() {
 		},
 		DeleteReplacement: func(from string) { a.store.DeleteReplacement(from); a.saveVocabulary(); a.refresh() },
 		ImportVocabulary:  a.importVocabulary,
-		ExportVocabulary:  a.exportVocabulary,
+		Quit:              func() { mygo.App.Quit() },
+		SetOpenAtLogin:    a.setLoginItem,
+		OpenLoginItems: func() {
+			if e := mygo.Shell.OpenExternal(loginItemsURL); e != nil {
+				a.view.Snapshot.Status = "无法打开系统设置"
+			}
+		},
+		ExportVocabulary: a.exportVocabulary,
+		ConfigureASR:     a.configureASR,
+		TestASR:          a.testASR,
+		DeleteASRKey:     a.deleteASRKey,
+		ConfigureJev:     a.configureJev,
+		TestJev:          a.testJev,
+		DeleteJevKey:     a.deleteJevKey,
 		Configure: func(c refinement.Config, key string) {
 			a.config.Refinement = c
 			saved := a.writeSettings()
@@ -494,6 +581,8 @@ func (a *application) refresh() {
 	s.Terms = append([]vocabulary.Term(nil), a.store.Terms...)
 	s.Replacements = append([]vocabulary.Replacement(nil), a.store.Replacements...)
 	s.Config = a.config.Refinement
+	s.ASR = a.config.ASR
+	s.Jev = a.config.Jev
 	s.CanCommit = c.CanCommit()
 	s.Permissions = make(permission.Set, len(a.permissions))
 	for n, st := range a.permissions {
@@ -597,6 +686,7 @@ func (a *application) startNative() {
 				return
 			case <-ticker.C:
 				a.post(func() {
+					a.readLoginItem()
 					if len(a.permissions.Missing()) > 0 || a.permissions[permission.Automation] != permission.Granted {
 						a.queryPermissions()
 					}
@@ -746,7 +836,8 @@ func (a *application) onPermission(e bridge.Event) {
 		return
 	}
 	a.permissions[n] = st
-	if n == permission.Speech && st != permission.Granted && a.coordinator.Active {
+	// Online recognition does not need the Speech grant.
+	if n == permission.Speech && st != permission.Granted && a.coordinator.Active && a.online == nil {
 		a.effects(a.coordinator.Cancel("语音识别未授权：请到“权限”页授权后重试"))
 	}
 	if a.onboarded {
@@ -760,6 +851,10 @@ func (a *application) onPermission(e bridge.Event) {
 	a.onboarded = true
 	if len(a.permissions.Missing()) > 0 && !a.installState.Busy() {
 		a.view.Page = appui.PermissionsPage
+		// Started at login without its window: the user must see what is missing.
+		if a.atLogin {
+			a.showMain()
+		}
 	}
 }
 
@@ -943,10 +1038,25 @@ func (a *application) effects(effects []device.Effect) {
 		case "start":
 			a.terms = a.store.Top(100)
 			a.saveVocabulary()
-			a.sendSpeech(map[string]any{"type": "start", "sessionId": e.ID, "terms": a.terms})
+			if a.config.ASR.Online() {
+				a.startOnline(e.ID)
+			} else {
+				a.sendSpeech(map[string]any{"type": "start", "sessionId": e.ID, "terms": a.terms})
+			}
 		case "pcm":
-			a.sendSpeech(map[string]any{"type": "pcm", "sessionId": e.ID, "sequence": e.Sequence, "payloadBase64": base64.StdEncoding.EncodeToString(e.PCM)})
+			if a.online != nil && a.onlineID == e.ID {
+				a.online.PCM(e.PCM)
+			} else {
+				a.sendSpeech(map[string]any{"type": "pcm", "sessionId": e.ID, "sequence": e.Sequence, "payloadBase64": base64.StdEncoding.EncodeToString(e.PCM)})
+			}
+		case "finish":
+			if a.online != nil && a.onlineID == e.ID {
+				a.online.Finish()
+			} else {
+				a.sendSpeech(map[string]any{"type": "finish", "sessionId": e.ID, "text": e.Text})
+			}
 		case "cancel":
+			a.closeOnline()
 			if a.refineCancel != nil {
 				a.refineCancel()
 				a.refineCancel = nil
@@ -966,7 +1076,7 @@ func (a *application) effects(effects []device.Effect) {
 	a.refresh()
 }
 func (a *application) refine(e device.Effect) {
-	if a.config.Refinement.Mode == "off" {
+	if a.config.Refinement.Mode == "off" && !a.config.Jev.Enabled {
 		// No refinement: insert the recognized text, with the vocabulary's
 		// replacements, at once.
 		a.view.Snapshot.Status = "disabled"
@@ -980,8 +1090,22 @@ func (a *application) refine(e device.Effect) {
 	cfg := a.config.Refinement
 	terms := append([]string(nil), a.terms...)
 	speech := a.speech
+	judge := a.config.Jev
 	go func() {
-		out, status := refinement.Run(ctx, cfg, e.Text, terms, keychain.Store{}, func(ctx context.Context, prompt string) (string, error) {
+		// Jev judges the spans that sound like a term first; refinement
+		// then leaves the ones it kept and decides the uncertain.
+		text, keep, note := judgeVocabulary(ctx, judge, e.Text, terms)
+		if cfg.Mode == "off" {
+			a.post(func() {
+				if ctx.Err() != nil {
+					return
+				}
+				a.view.Snapshot.Status = note + "disabled"
+				a.effects(a.coordinator.Speech("refinement_done", e.ID, a.store.Correct(text), time.Now()))
+			})
+			return
+		}
+		out, status := refinement.Run(ctx, cfg, text, terms, keychain.Store{}, func(ctx context.Context, prompt string) (string, error) {
 			if speech == nil {
 				return "", errors.New("speech unavailable")
 			}
@@ -994,15 +1118,329 @@ func (a *application) refine(e device.Effect) {
 			case result := <-reply:
 				return result, nil
 			}
-		})
+		}, keep...)
 		a.post(func() {
 			if ctx.Err() != nil {
 				return
 			}
-			a.view.Snapshot.Status = status
+			a.view.Snapshot.Status = note + status
 			// The model must not bring a misrecognition back.
 			out = a.store.Correct(out)
 			a.effects(a.coordinator.Speech("refinement_done", e.ID, out, time.Now()))
+		})
+	}()
+}
+
+// applyASR gives an online engine time to connect, a little longer than its
+// own start timeout so that its reason ends the session.
+func (a *application) applyASR() {
+	a.coordinator.StartTimeout = 0
+	if a.config.ASR.Online() {
+		a.coordinator.StartTimeout = asr.StartTimeout + 500*time.Millisecond
+	}
+}
+
+// startOnline recognizes session id online. SpeechBridge only claims the
+// session and the target app, so refinement and insertion work as before.
+func (a *application) startOnline(id uint32) {
+	a.closeOnline()
+	a.sendSpeech(map[string]any{"type": "begin", "sessionId": id})
+	a.onlineID = id
+	a.online = asr.Start(ctxOrBackground(a.ctx), asr.Options{
+		Config: a.config.ASR,
+		Key: func(ctx context.Context) (string, error) {
+			return (keychain.Store{}).Get(ctx, asr.KeyAccount)
+		},
+		OnEvent: func(e asr.Event) { a.post(func() { a.onOnline(id, e) }) },
+	})
+}
+
+func (a *application) closeOnline() {
+	if a.online != nil {
+		a.online.Close()
+		a.online = nil
+	}
+}
+
+// onOnline hands an online event of session id to the coordinator as
+// SpeechBridge's would be; a failure ends the session with its reason.
+func (a *application) onOnline(id uint32, e asr.Event) {
+	if a.online == nil || a.onlineID != id {
+		return
+	}
+	switch e.Type {
+	case "error":
+		a.closeOnline()
+		if a.coordinator.Active && a.coordinator.Generation == id {
+			a.effects(a.coordinator.Cancel(asr.Message(e.Err)))
+		}
+		return
+	case "final":
+		a.closeOnline()
+		e.Text = a.store.Correct(e.Text)
+	case "partial":
+		e.Text = a.store.Correct(e.Text)
+	}
+	a.effects(a.coordinator.Speech(e.Type, id, e.Text, time.Now()))
+}
+
+func (a *application) setASRFeedback(c asr.Config, msg string, ok bool) {
+	s := &a.view.Snapshot
+	s.ASRFeedback, s.ASRFeedbackOK, s.ASRFeedbackFor = msg, ok, c
+}
+
+// configureASR saves the recognition engine, and a typed key to the
+// keychain; for an online engine without one, it checks a key is saved.
+func (a *application) configureASR(c asr.Config, key string) {
+	c = asr.Normalize(c)
+	a.config.ASR = c
+	a.applyASR()
+	if a.writeSettings() != nil {
+		a.setASRFeedback(c, "保存设置失败：无法写入 ~/Library/Application Support/MyGo-GoVoice/。", false)
+		a.refresh()
+		return
+	}
+	if key == "" && !c.Online() {
+		msg, ok := asrSettingsMessage(c, false, nil)
+		a.setASRFeedback(c, msg, ok)
+		a.refresh()
+		return
+	}
+	go func() {
+		ctx := ctxOrBackground(a.ctx)
+		var err error
+		if key != "" {
+			err = (keychain.Store{}).Set(ctx, asr.KeyAccount, key)
+		} else {
+			_, err = (keychain.Store{}).Get(ctx, asr.KeyAccount)
+		}
+		a.post(func() {
+			msg, ok := asrSettingsMessage(c, key != "", err)
+			a.setASRFeedback(c, msg, ok)
+		})
+	}()
+}
+
+// asrSettingsMessage tells how saving the engine c ended: with a typed key
+// stored or not, or for an online engine whether a key is saved (keyErr).
+func asrSettingsMessage(c asr.Config, typedKey bool, keyErr error) (string, bool) {
+	next := "设置已保存，识别引擎：" + asr.ChoiceOf(c).Label + "。"
+	switch {
+	case typedKey && keyErr != nil:
+		return "设置已保存，但 API key 存入钥匙串失败，请重试。", false
+	case typedKey:
+		return next + "API key 已存入钥匙串。", true
+	case c.Online() && keyErr != nil:
+		return "设置已保存，但还没有支付宝 MaaS 的 API key：请填写后再次保存。", false
+	}
+	return next, true
+}
+
+// testASR checks the engine c with the typed key, else the saved one.
+func (a *application) testASR(c asr.Config, key string) {
+	if a.view.Snapshot.ASRTesting {
+		return
+	}
+	a.view.Snapshot.ASRTesting, a.view.Snapshot.ASRFeedback = true, ""
+	a.refresh()
+	go func() {
+		ctx := ctxOrBackground(a.ctx)
+		var err error
+		if key == "" {
+			if key, err = (keychain.Store{}).Get(ctx, asr.KeyAccount); err != nil {
+				err = asr.ErrKey
+			}
+		}
+		var res asr.TestResult
+		if err == nil {
+			res, err = asr.Test(ctx, c, key)
+		}
+		a.post(func() {
+			a.view.Snapshot.ASRTesting = false
+			msg, ok := asrTestMessage(c, res, err)
+			a.setASRFeedback(c, msg, ok)
+		})
+	}()
+}
+
+func asrTestMessage(c asr.Config, res asr.TestResult, err error) (string, bool) {
+	if err != nil {
+		return asr.Message(err), false
+	}
+	return fmt.Sprintf("连接成功（%.1f 秒），可以使用%s。测试只发送了半秒静音。", res.Elapsed.Seconds(), asr.ChoiceOf(c).Label), true
+}
+
+func (a *application) deleteASRKey() {
+	c := a.view.ASR
+	go func() {
+		err := (keychain.Store{}).Delete(ctxOrBackground(a.ctx), asr.KeyAccount)
+		a.post(func() {
+			if err != nil {
+				a.setASRFeedback(c, "删除失败：无法访问钥匙串。", false)
+			} else {
+				a.setASRFeedback(c, "已从钥匙串删除支付宝 MaaS 的 API key。", true)
+			}
+		})
+	}()
+}
+
+// judgeVocabulary runs the Jev check when on: the text with the likely
+// terms in place, the heard words to keep, and a note when it was skipped.
+func judgeVocabulary(ctx context.Context, c jev.Config, text string, terms []string) (string, []string, string) {
+	if !c.Enabled {
+		return text, nil, ""
+	}
+	res, err := checkVocabulary(ctx, c, text, terms)
+	if err != nil {
+		note := ""
+		if ctx.Err() == nil {
+			note = "Jev 词库判断已跳过：" + jev.Message(err) + " "
+		}
+		return text, nil, note
+	}
+	return res.Text, res.Keep, ""
+}
+
+// checkVocabulary has Jev at the endpoint of c judge the spans of text that
+// sound like a vocabulary term, within jev.Timeout; on failure text goes on
+// unchanged.
+var checkVocabulary = func(ctx context.Context, c jev.Config, text string, terms []string) (jev.Result, error) {
+	ctx, cancel := context.WithTimeout(ctx, jev.Timeout)
+	defer cancel()
+	if len(refinement.Spans(text, terms)) == 0 {
+		return jev.Result{Text: text}, nil
+	}
+	key, err := (keychain.Store{}).Get(ctx, jev.KeyAccount(c))
+	if err != nil || key == "" {
+		return jev.Result{Text: text}, jev.ErrKey
+	}
+	return jev.Check(ctx, c, text, terms, key)
+}
+
+func (a *application) setJevFeedback(c jev.Config, msg string, ok bool) {
+	s := &a.view.Snapshot
+	s.JevFeedback, s.JevFeedbackOK, s.JevFeedbackFor = msg, ok, c
+}
+
+// configureJev saves the vocabulary check, and a typed key to the keychain
+// under its endpoint; turned on without one, it checks a key is saved. An
+// invalid endpoint is not saved.
+func (a *application) configureJev(c jev.Config, key string) {
+	c = jev.Normalize(c)
+	if _, err := c.URL(); err != nil {
+		a.setJevFeedback(c, "未保存："+jev.Message(err), false)
+		a.refresh()
+		return
+	}
+	a.config.Jev = c
+	if a.writeSettings() != nil {
+		a.setJevFeedback(c, "保存设置失败：无法写入 ~/Library/Application Support/MyGo-GoVoice/。", false)
+		a.refresh()
+		return
+	}
+	if key == "" && !c.Enabled {
+		msg, ok := jevSettingsMessage(c, false, nil)
+		a.setJevFeedback(c, msg, ok)
+		a.refresh()
+		return
+	}
+	go func() {
+		ctx := ctxOrBackground(a.ctx)
+		var err error
+		if key != "" {
+			err = (keychain.Store{}).Set(ctx, jev.KeyAccount(c), key)
+		} else {
+			_, err = (keychain.Store{}).Get(ctx, jev.KeyAccount(c))
+		}
+		a.post(func() {
+			msg, ok := jevSettingsMessage(c, key != "", err)
+			a.setJevFeedback(c, msg, ok)
+		})
+	}()
+}
+
+// jevSettingsMessage tells how saving c ended: with a typed key stored or
+// not, or when turned on whether a key is saved (keyErr).
+func jevSettingsMessage(c jev.Config, typedKey bool, keyErr error) (string, bool) {
+	next := "设置已保存，Jev 词库判断已关闭。"
+	if c.Enabled {
+		next = "设置已保存，Jev 词库判断已开启（" + c.Host() + "，" + jev.Normalize(c).Model + "）。"
+	}
+	switch {
+	case typedKey && keyErr != nil:
+		return "设置已保存，但 API key 存入钥匙串失败，请重试。", false
+	case typedKey:
+		return next + "API key 已存入钥匙串。", true
+	case c.Enabled && keyErr != nil:
+		return "设置已保存，但还没有 " + c.Host() + " 的 API key：请填写后再次保存。", false
+	}
+	return next, true
+}
+
+// testJev judges the fixed sample at the endpoint and model of c, with the
+// typed key, else the one saved for that endpoint.
+func (a *application) testJev(c jev.Config, key string) {
+	if a.view.Snapshot.JevTesting {
+		return
+	}
+	draft := c
+	c = jev.Normalize(c)
+	a.view.Snapshot.JevTesting, a.view.Snapshot.JevFeedback = true, ""
+	a.refresh()
+	go func() {
+		ctx := ctxOrBackground(a.ctx)
+		var err error
+		if _, err = c.URL(); err == nil && key == "" {
+			if key, err = (keychain.Store{}).Get(ctx, jev.KeyAccount(c)); err != nil {
+				err = jev.ErrKey
+			}
+		}
+		var res jev.TestResult
+		if err == nil {
+			res, err = jev.Test(ctx, c, key)
+		}
+		a.post(func() {
+			a.view.Snapshot.JevTesting = false
+			msg, ok := jevTestMessage(res, err)
+			a.setJevFeedback(draft, msg, ok)
+		})
+	}()
+}
+
+// jevTestMessage shows how Jev judged each span of the sample and what
+// the thresholds make of it.
+func jevTestMessage(res jev.TestResult, err error) (string, bool) {
+	if err != nil {
+		return jev.Message(err), false
+	}
+	text := []rune(jev.TestText)
+	var parts []string
+	for _, d := range res.Decisions {
+		verdict := "交给 AI 润色判断"
+		switch {
+		case d.P >= jev.Replace:
+			verdict = "替换为“" + d.Term + "”"
+		case d.P <= jev.Keep:
+			verdict = "保留原文"
+		}
+		from, to := max(0, d.Start-2), min(len(text), d.End+2)
+		parts = append(parts, fmt.Sprintf("“%s”%.0f%%，%s", string(text[from:to]), d.P*100, verdict))
+	}
+	return fmt.Sprintf("连接成功（%.1f 秒）。示例句的判断：%s。测试只发送固定示例句。", res.Elapsed.Seconds(), strings.Join(parts, "；")), true
+}
+
+// deleteJevKey removes the key saved for the endpoint the tab shows.
+func (a *application) deleteJevKey() {
+	draft := a.view.Jev
+	c := jev.Normalize(draft)
+	go func() {
+		err := (keychain.Store{}).Delete(ctxOrBackground(a.ctx), jev.KeyAccount(c))
+		a.post(func() {
+			if err != nil {
+				a.setJevFeedback(draft, "删除失败：无法访问钥匙串。", false)
+			} else {
+				a.setJevFeedback(draft, "已从钥匙串删除 "+c.Host()+" 的 API key。", true)
+			}
 		})
 	}()
 }

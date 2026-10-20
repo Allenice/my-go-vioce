@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -10,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vfasky/my-ai-audio/gui/internal/asr"
 	"github.com/vfasky/my-ai-audio/gui/internal/firmware"
+	"github.com/vfasky/my-ai-audio/gui/internal/jev"
 	"github.com/vfasky/my-ai-audio/gui/internal/permission"
 	"github.com/vfasky/my-ai-audio/gui/internal/platform/bridge"
 	"github.com/vfasky/my-ai-audio/gui/internal/refinement"
@@ -253,5 +256,224 @@ func TestImportMessageAndReadLimited(t *testing.T) {
 	}
 	if _, err := readLimited(path, 4); err == nil {
 		t.Fatal("oversized file read")
+	}
+}
+
+// idleSession is an online session that never reports anything.
+func idleSession() *asr.Session {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	return asr.Start(ctx, asr.Options{})
+}
+
+func TestOnlineEventsDriveTheSession(t *testing.T) {
+	a := &application{permissions: permission.Set{}, onboarded: true}
+	a.config.ASR = asr.Choices[1].Config
+	a.applyASR()
+	if a.coordinator.StartTimeout <= asr.StartTimeout {
+		t.Fatalf("start timeout %v", a.coordinator.StartTimeout)
+	}
+	_ = a.store.PutReplacement("", vocabulary.Replacement{From: "施玉宝", To: "私域宝"})
+	a.coordinator.Active, a.coordinator.Generation, a.coordinator.Phase = true, 7, "starting"
+	a.online, a.onlineID = idleSession(), 7
+	a.onOnline(7, asr.Event{Type: "ready"})
+	if a.coordinator.Phase != "recording" {
+		t.Fatalf("phase %q", a.coordinator.Phase)
+	}
+	// Online recognition goes on without the Speech grant.
+	a.onSpeech(perm("speech", "denied"))
+	if !a.coordinator.Active {
+		t.Fatal("online session ended for the Speech grant")
+	}
+	a.onOnline(7, asr.Event{Type: "partial", Text: "打开施玉宝"})
+	a.onOnline(6, asr.Event{Type: "partial", Text: "old"})
+	if a.coordinator.Partial != "打开私域宝" {
+		t.Fatalf("partial %q", a.coordinator.Partial)
+	}
+	a.coordinator.Phase = "finalizing"
+	a.config.Refinement.Mode = "off"
+	a.onOnline(7, asr.Event{Type: "final", Text: "打开施玉宝。"})
+	if a.online != nil || a.coordinator.Original != "打开私域宝。" || a.coordinator.Phase != "inserting" {
+		t.Fatalf("final: %v %q %q", a.online != nil, a.coordinator.Original, a.coordinator.Phase)
+	}
+}
+
+func TestOnlineFailureEndsSessionWithReason(t *testing.T) {
+	a := &application{}
+	a.coordinator.Active, a.coordinator.Generation, a.coordinator.Phase = true, 3, "recording"
+	a.online, a.onlineID = idleSession(), 3
+	a.onOnline(3, asr.Event{Type: "error", Err: &asr.StatusError{Code: 401}})
+	if a.coordinator.Active || a.online != nil || !strings.Contains(a.coordinator.Status, "API key 无效") {
+		t.Fatalf("status %q", a.coordinator.Status)
+	}
+	// Cancelling closes the online session too.
+	a.coordinator.Active, a.coordinator.Generation = true, 4
+	a.online, a.onlineID = idleSession(), 4
+	a.effects(a.coordinator.Cancel("已取消"))
+	if a.online != nil {
+		t.Fatal("online session left open")
+	}
+}
+
+func TestASRMessages(t *testing.T) {
+	online, local := asr.Choices[1].Config, asr.Choices[0].Config
+	for _, tc := range []struct {
+		c     asr.Config
+		typed bool
+		err   error
+		want  string
+		ok    bool
+	}{
+		{local, false, nil, "识别引擎：Apple 本地", true},
+		{online, true, nil, "API key 已存入钥匙串", true},
+		{online, true, errors.New("x"), "存入钥匙串失败", false},
+		{online, false, errors.New("missing"), "还没有支付宝 MaaS 的 API key", false},
+		{online, false, nil, "识别引擎：支付宝 MaaS · Fun-ASR 实时", true},
+	} {
+		if msg, ok := asrSettingsMessage(tc.c, tc.typed, tc.err); ok != tc.ok || !strings.Contains(msg, tc.want) {
+			t.Errorf("%+v: %q %v", tc, msg, ok)
+		}
+	}
+	if msg, ok := asrTestMessage(online, asr.TestResult{Elapsed: 600 * time.Millisecond}, nil); !ok || !strings.Contains(msg, "连接成功（0.6 秒）") {
+		t.Fatalf("%q", msg)
+	}
+	if msg, ok := asrTestMessage(online, asr.TestResult{}, asr.ErrKey); ok || !strings.Contains(msg, "API key") {
+		t.Fatalf("%q", msg)
+	}
+}
+
+func TestSettingsWithoutASRAreLocal(t *testing.T) {
+	var s settings
+	if err := json.Unmarshal([]byte(`{"peripheral":"","refinement":{"engine":"local","mode":"light"}}`), &s); err != nil {
+		t.Fatal(err)
+	}
+	if asr.Normalize(s.ASR).Online() {
+		t.Fatal("old settings must stay local")
+	}
+}
+
+func TestLoginItemFollowsTheSystem(t *testing.T) {
+	enabled, approval := false, errors.New("mygo: allow go-voice to open at login in System Settings > General > Login Items")
+	var result error
+	restoreSet, restoreRead := setOpenAtLogin, openAtLogin
+	defer func() { setOpenAtLogin, openAtLogin = restoreSet, restoreRead }()
+	setOpenAtLogin = func(open bool) error {
+		enabled = open && result == nil
+		return result
+	}
+	openAtLogin = func() bool { return enabled }
+	a := &application{permissions: permission.Set{}, installState: firmware.Initial()}
+	s := &a.view.Snapshot
+	a.setLoginItem(true)
+	if !s.OpenAtLogin || s.LoginApproval || !s.LoginFeedbackOK {
+		t.Fatalf("enable: %+v", s)
+	}
+	a.setLoginItem(false)
+	if s.OpenAtLogin || s.LoginFeedback != "已关闭登录时打开。" {
+		t.Fatalf("disable: %+v", s)
+	}
+	result = approval
+	a.setLoginItem(true)
+	if s.OpenAtLogin || !s.LoginApproval || s.LoginFeedbackOK {
+		t.Fatalf("approval: %+v", s)
+	}
+	enabled = true
+	a.readLoginItem()
+	if !s.OpenAtLogin || s.LoginApproval || !s.LoginFeedbackOK {
+		t.Fatalf("approved in System Settings: %+v", s)
+	}
+}
+
+func TestLoginMessage(t *testing.T) {
+	for _, c := range []struct {
+		open bool
+		err  error
+		want string
+		ok   bool
+	}{
+		{true, nil, "已开启：下次登录 Mac 时 go-voice 会在菜单栏后台启动。", true},
+		{false, nil, "已关闭登录时打开。", true},
+		{true, errors.New("mygo: starting at login needs an app bundle; run the app with mygo dev or build it with mygo build"), "无法更改：请启动打包后的 go-voice.app，而不是直接运行可执行文件。", false},
+		{false, errors.New("mygo: Operation not permitted"), "无法关闭登录时打开：Operation not permitted", false},
+	} {
+		if got, ok := loginMessage(c.open, c.err); got != c.want || ok != c.ok {
+			t.Errorf("loginMessage(%v, %v) = %q, %v", c.open, c.err, got, ok)
+		}
+	}
+}
+
+func TestLoginLaunchShowsMissingPermissions(t *testing.T) {
+	a := &application{permissions: permission.Set{}, installState: firmware.Initial(), atLogin: true}
+	a.onBluetooth(perm("bluetooth", "granted"))
+	a.onSpeech(perm("speech", "denied"))
+	a.onSpeech(perm("accessibility", "granted"))
+	if a.view.Page != appui.PermissionsPage {
+		t.Fatalf("page %d", a.view.Page)
+	}
+}
+
+func TestJudgeVocabularyAppliesOrSkips(t *testing.T) {
+	restore := checkVocabulary
+	defer func() { checkVocabulary = restore }()
+	checkVocabulary = func(_ context.Context, _ jev.Config, text string, _ []string) (jev.Result, error) {
+		return jev.Result{Text: strings.Replace(text, "一致科技", "伊智科技", 1), Keep: []string{"一致"}}, nil
+	}
+	text, keep, note := judgeVocabulary(context.Background(), jev.Config{Enabled: true}, "一致科技意见一致", []string{"伊智"})
+	if text != "伊智科技意见一致" || len(keep) != 1 || note != "" {
+		t.Fatalf("%q %v %q", text, keep, note)
+	}
+	if text, keep, _ := judgeVocabulary(context.Background(), jev.Config{}, "一致科技", []string{"伊智"}); text != "一致科技" || keep != nil {
+		t.Fatalf("off: %q %v", text, keep)
+	}
+	checkVocabulary = func(_ context.Context, _ jev.Config, text string, _ []string) (jev.Result, error) {
+		return jev.Result{Text: "never used"}, &jev.StatusError{Code: 401}
+	}
+	text, keep, note = judgeVocabulary(context.Background(), jev.Config{Enabled: true}, "一致科技", []string{"伊智"})
+	if text != "一致科技" || keep != nil || !strings.Contains(note, "HTTP 401") {
+		t.Fatalf("failure: %q %v %q", text, keep, note)
+	}
+}
+
+func TestJevMessages(t *testing.T) {
+	maas := jev.Config{Enabled: true, Endpoint: "https://maas-api.antdigital.com/v1/systemone", Model: "jev-1.13"}
+	if msg, ok := jevSettingsMessage(maas, false, errors.New("missing")); ok || !strings.Contains(msg, "还没有 maas-api.antdigital.com 的 API key") {
+		t.Fatalf("%q", msg)
+	}
+	if msg, ok := jevSettingsMessage(maas, true, nil); !ok || msg != "设置已保存，Jev 词库判断已开启（maas-api.antdigital.com，jev-1.13）。API key 已存入钥匙串。" {
+		t.Fatalf("%q", msg)
+	}
+	res := jev.TestResult{Elapsed: 300 * time.Millisecond}
+	for _, s := range refinement.Spans(jev.TestText, jev.TestTerms) {
+		p := 0.06
+		if s.Start < 10 {
+			p = 0.93
+		}
+		res.Decisions = append(res.Decisions, jev.Decision{Span: s, P: p})
+	}
+	msg, ok := jevTestMessage(res, nil)
+	if !ok || !strings.Contains(msg, "“讨论一致科技”93%，替换为“伊智”") || !strings.Contains(msg, "“见很一致”6%，保留原文") {
+		t.Fatalf("%q", msg)
+	}
+	if msg, ok := jevTestMessage(jev.TestResult{}, jev.ErrKey); ok || msg == "" {
+		t.Fatalf("%q", msg)
+	}
+}
+
+func TestSettingsKeepJev(t *testing.T) {
+	var s settings
+	if json.Unmarshal([]byte(`{"jev":{"enabled":true,"endpoint":"https://maas-api.antdigital.com/v1/systemone","model":"jev-1.13"}}`), &s) != nil || !s.Jev.Enabled || s.Jev.Model != "jev-1.13" {
+		t.Fatalf("%+v", s)
+	}
+	if json.Unmarshal([]byte(`{}`), &s) != nil {
+		t.Fatal("old settings")
+	}
+}
+
+func TestConfigureJevRefusesAnInvalidEndpoint(t *testing.T) {
+	a := &application{}
+	a.configureJev(jev.Config{Enabled: true, Endpoint: "http://maas-api.antdigital.com/v1/systemone"}, "")
+	s := a.view.Snapshot
+	if a.config.Jev.Enabled || s.JevFeedbackOK || !strings.HasPrefix(s.JevFeedback, "未保存：接口地址无效") {
+		t.Fatalf("%+v %q", a.config.Jev, s.JevFeedback)
 	}
 }

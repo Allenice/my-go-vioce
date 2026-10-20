@@ -23,6 +23,9 @@ import Speech
     emit(["type": type, "sessionId": id, "text": text])
   }
   func permission(_ name: String, _ state: String) { emit(Permission.event(name, state)) }
+  /// Volatile results alone arrive only after the audio ends; fastResults
+  /// reports the words about once a second while the user speaks.
+  static let reporting: Set<SpeechTranscriber.ReportingOption> = [.volatileResults, .fastResults]
   static func speechState(_ status: SFSpeechRecognizerAuthorizationStatus) -> String {
     switch status {
     case .authorized: return "granted"
@@ -58,7 +61,7 @@ import Speech
     guard SpeechTranscriber.isAvailable else { throw BridgeError.unavailable }
     let locale = Locale(identifier: "zh-CN")
     let transcriber = SpeechTranscriber(
-      locale: locale, transcriptionOptions: [], reportingOptions: [.volatileResults],
+      locale: locale, transcriptionOptions: [], reportingOptions: Self.reporting,
       attributeOptions: [])
     emit(["type": "model", "message": "Checking zh-CN assets"])
     if let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
@@ -76,6 +79,11 @@ import Speech
     do {
       switch c.type {
       case "warmup": try await warmup()
+      case "begin":
+        // Online recognition runs in the app: only claim the session and the
+        // insertion target, so refine and insert still match it.
+        guard identity.start(id) else { return }
+        injector.capture()
       case "start":
         guard identity.start(id) else { return }
         injector.capture()
@@ -92,7 +100,7 @@ import Speech
             guard identity.matches(id) else { throw BridgeError.unavailable }
             let t = SpeechTranscriber(
               locale: Locale(identifier: "zh-CN"), transcriptionOptions: [],
-              reportingOptions: [.volatileResults], attributeOptions: [])
+              reportingOptions: Self.reporting, attributeOptions: [])
             let a = SpeechAnalyzer(modules: [t])
             analyzer = a
             let context = AnalysisContext()

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"math"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -15,6 +16,10 @@ const (
 	// last: about three lines of Chinese.
 	previewTail = 90
 	miniBars    = 11
+	// tickerWidth is the line of the capsule that shows the words being
+	// spoken; tickerTail the runes it lays out, more than ever fit.
+	tickerWidth = 280
+	tickerTail  = 60
 )
 
 // tailText keeps the newest max runes, as a dictation bar shows the words
@@ -66,17 +71,14 @@ func drawMini(p *ui.Painter, r ui.Rect, bins [32]float64, phase string) {
 	}
 }
 
-// hudLine is what the capsule says in each phase; the text itself shows in
-// the preview above it.
+// hudLine is what the capsule says in each phase while it shows no words;
+// hudWords are the words.
 func hudLine(s Snapshot) string {
 	switch s.Phase {
 	case "starting":
 		return "正在准备…"
 	case "recording", "tail":
-		if s.Partial == "" {
-			return "请说话…"
-		}
-		return "正在聆听…"
+		return "请说话…"
 	case "finalizing":
 		return "正在识别…"
 	case "refining":
@@ -88,17 +90,69 @@ func hudLine(s Snapshot) string {
 	return "等待语音"
 }
 
-// hudPreview is the text the preview above the capsule shows: what was
-// recognized so far, then while refinement runs the ASR original that the
-// confirm button would insert.
-func hudPreview(s Snapshot) string {
+// hudWords are what was recognized so far, which the capsule shows in
+// place of its line while the user speaks and recognition finishes.
+func hudWords(s Snapshot) string {
 	switch s.Phase {
 	case "recording", "tail", "finalizing":
 		return s.Partial
-	case "refining":
+	}
+	return ""
+}
+
+// hudPreview is the text the preview above the capsule shows: while
+// refinement runs, the ASR original that the confirm button would insert.
+func hudPreview(s Snapshot) string {
+	if s.Phase == "refining" {
 		return s.Original
 	}
 	return ""
+}
+
+// slide eases the shown width of the ticker toward the width of its words,
+// so new words move in from the right edge rather than jump.
+type slide struct {
+	shown float32
+	at    time.Time
+}
+
+// slideAfter: frames further apart than this start a new line, shown whole.
+const slideAfter = time.Second
+
+func (s *slide) step(w float32, now time.Time) float32 {
+	dt := now.Sub(s.at)
+	s.at = now
+	if dt <= 0 || dt > slideAfter {
+		s.shown = w
+		return w
+	}
+	const tau = 70 * time.Millisecond
+	s.shown += (w - s.shown) * float32(1-math.Exp(-float64(dt)/float64(tau)))
+	if d := w - s.shown; d < 0.5 && d > -0.5 {
+		s.shown = w
+	}
+	return s.shown
+}
+
+// ticker shows words on one line of fixed width: the newest at the right
+// edge, sliding in as they arrive, the older scrolling out to the left
+// under a fade.
+func (v *View) ticker(c *ui.Context, words string) {
+	text := tailText(words, tickerTail)
+	ui.Box(c.Key("hud-ticker")).Size(tickerWidth, 19.5).Label(text).Draw(func(p *ui.Painter, r ui.Rect) {
+		span := ui.Span{Text: text, Size: 12, Weight: 500, Color: colText}
+		w, h := p.MeasureText(0, span)
+		shown := v.slide.step(w, p.Now())
+		if shown != w {
+			p.AnimationFrame()
+		}
+		p.Clip(r, 0, func() {
+			p.RichText(r.X+r.W-shown, r.Y+(r.H-h)/2, 0, span)
+		})
+		if shown > r.W {
+			p.FillGradient(ui.Rect{X: r.X, Y: r.Y, W: 24, H: r.H}, ui.LinearGradient{From: colHUD, To: colHUD.Alpha(0), Angle: 90}, 0)
+		}
+	})
 }
 
 // DrawHUD renders the floating dictation capsule. It shares the snapshot of
@@ -110,14 +164,12 @@ func (v *View) DrawHUD(c *ui.Context) {
 	ui.Box(c).Fill().Children(func() {
 		if text := hudPreview(s); text != "" {
 			ui.Box(c).Attach(ui.AnchorBottom, ui.AnchorBottom).Bottom(57).MaxWidth(HUDWidth-30).Padding(9, 15).
-				Radius(16).Background(ui.Hex("#121212")).Border(1, ui.RGBA(255, 255, 255, 0.12)).
-				Shadow(0, 7.5, 22.5, 0, ui.RGBA(0, 0, 0, 0.45)).Children(func() {
+				Radius(16).Background(colHUD).Border(1, ui.RGBA(255, 255, 255, 0.12)).Children(func() {
 				ui.Text(c, tailText(text, previewTail)).FontSize(13.5).LineHeight(1.45).MaxLines(3).TextColor(colText)
 			})
 		}
 		capsule := ui.Row(c).Attach(ui.AnchorBottom, ui.AnchorBottom).Bottom(10.5).Height(39).Padding(5.25).Gap(7.5).
-			Radius(19.5).Background(ui.Hex("#121212")).Border(1, ui.RGBA(255, 255, 255, 0.12)).
-			Shadow(0, 7.5, 22.5, 0, ui.RGBA(0, 0, 0, 0.45))
+			Radius(19.5).Background(colHUD).Border(1, ui.RGBA(255, 255, 255, 0.12))
 		capsule.Children(func() {
 			cancel := ui.ButtonBase(c.Key("hud-cancel")).Size(28.5, 28.5).Radius(14.25).Center().Label("取消").Tooltip("取消  Esc").
 				Border(1, ui.RGBA(255, 255, 255, 0.16)).TextColor(colSubtle)
@@ -129,8 +181,12 @@ func (v *View) DrawHUD(c *ui.Context) {
 			phase := s.Phase
 			bins := s.Meter.Bins
 			ui.Box(c).Size(40.5, 19.5).Draw(func(p *ui.Painter, r ui.Rect) { drawMini(p, r, bins, phase) })
-			ui.Text(c, hudLine(s)).FontSize(11.25).FontWeight(500).SingleLine().MaxWidth(352.5).
-				TextColor(colMuted).PaddingX(1.5)
+			if words := hudWords(s); words != "" {
+				v.ticker(c, words)
+			} else {
+				ui.Text(c, hudLine(s)).FontSize(11.25).FontWeight(500).SingleLine().MaxWidth(352.5).
+					TextColor(colMuted).PaddingX(1.5)
+			}
 			commit := ui.ButtonBase(c.Key("hud-commit")).Size(28.5, 28.5).Radius(14.25).Center().Label("立即插入原文").
 				Tooltip("跳过 AI 润色，立即插入").Disabled(!s.CanCommit)
 			if s.CanCommit {

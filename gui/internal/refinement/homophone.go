@@ -29,18 +29,42 @@ var pinyinArgs = func() pinyin.Args {
 	return a
 }()
 
+// Span is a Candidate at its place in the dictation: runes Start to End.
+type Span struct {
+	Candidate
+	Start, End int
+}
+
 // Candidates finds the spans of text that sound like a term of the
 // vocabulary, longest terms first. Only terms of two or more Chinese
 // characters are compared; spans that already are a vocabulary term are
 // skipped.
 func Candidates(text string, terms []string) []Candidate {
+	var out []Candidate
+	seen := map[string]bool{}
+	for _, s := range Spans(text, terms) {
+		if seen[s.Heard+"\x00"+s.Term] {
+			continue
+		}
+		seen[s.Heard+"\x00"+s.Term] = true
+		out = append(out, s.Candidate)
+		if len(out) == maxCandidates {
+			break
+		}
+	}
+	return out
+}
+
+// Spans is Candidates at every place they occur, so that each can be
+// judged and replaced on its own.
+func Spans(text string, terms []string) []Span {
 	runes := []rune(text)
 	known := map[string]bool{}
 	var han []string
 	for _, t := range terms {
 		t = strings.TrimSpace(t)
 		known[t] = true
-		if r := []rune(t); len(r) >= 2 && allHan(r) {
+		if r := []rune(t); len(r) >= 2 && allHan(r) && !slices.Contains(han, t) {
 			han = append(han, t)
 		}
 	}
@@ -51,8 +75,7 @@ func Candidates(text string, terms []string) []Candidate {
 			readings[i] = pinyin.SinglePinyin(r, pinyinArgs)
 		}
 	}
-	var out []Candidate
-	seen := map[string]bool{}
+	var out []Span
 	for _, term := range han {
 		tr := []rune(term)
 		termReadings := make([][]string, len(tr))
@@ -65,18 +88,14 @@ func Candidates(text string, terms []string) []Candidate {
 		}
 		for i := 0; i+len(tr) <= len(runes); i++ {
 			span := string(runes[i : i+len(tr)])
-			if known[span] || seen[span+"\x00"+term] {
+			if known[span] {
 				continue
 			}
 			match := soundMatch(readings[i:i+len(tr)], termReadings)
 			if match == "" {
 				continue
 			}
-			seen[span+"\x00"+term] = true
-			out = append(out, Candidate{Heard: span, Term: term, Pinyin: strings.Join(spelled, " "), Match: match})
-			if len(out) == maxCandidates {
-				return out
-			}
+			out = append(out, Span{Candidate{Heard: span, Term: term, Pinyin: strings.Join(spelled, " "), Match: match}, i, i + len(tr)})
 		}
 	}
 	return out

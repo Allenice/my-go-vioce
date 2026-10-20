@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -108,14 +109,23 @@ const VocabularyRule = "The vocabulary lists names and terms the user says often
 // matches a vocabulary term.
 const CandidateRule = "candidates lists spans of the dictation whose pinyin matches a vocabulary term (match \"same\": identical pinyin; \"similar\": z/zh, c/ch, s/sh, n/l or -n/-ng confused). They are probably misrecognitions of the term: replace each with its term unless the heard words are clearly what was meant."
 
+// KeepRule explains keep: heard words that Jev judged to be what the
+// speaker said, which the vocabulary must not replace.
+const KeepRule = "keep lists heard words that a separate check found to be what the speaker meant, not a vocabulary term, even though they sound like one: leave every one of them as it is."
+
 // FillerRule removes what carries no meaning in speech: interjections,
 // pause fillers, false starts, and the stray letters that recognition
 // writes for a hesitation sound.
 const FillerRule = "Then remove fillers that carry no meaning: interjections and hesitation sounds such as 喂, 嗯, 啊, 呃, 额, 哦, 诶, 欸 or 哎; words that only fill a pause, such as 那个, 这个, 就是 or 然后 used without meaning; words repeated by a false start; and stray single Latin letters, such as a lone Y or E, that recognition wrote for a hesitation sound. Keep such words where they carry meaning, as in 喂猫, 那个文件 or 然后再说."
 
-func Prompt(text string, terms []string, mode string) string {
-	candidates := Candidates(text, terms)
+// Prompt asks the model to edit text in mode against the vocabulary terms;
+// keep are heard words it must not replace with a term.
+func Prompt(text string, terms []string, mode string, keep ...string) string {
+	candidates := slices.DeleteFunc(Candidates(text, terms), func(c Candidate) bool { return slices.Contains(keep, c.Heard) })
 	fields := map[string]any{"dictation": text, "vocabulary": terms, "mode": mode}
+	if len(keep) > 0 && len(terms) > 0 {
+		fields["keep"] = keep
+	}
 	if len(candidates) > 0 {
 		fields["candidates"] = candidates
 	}
@@ -129,6 +139,9 @@ func Prompt(text string, terms []string, mode string) string {
 		head := VocabularyRule
 		if len(candidates) > 0 {
 			head += "\n" + CandidateRule
+		}
+		if len(keep) > 0 {
+			head += "\n" + KeepRule
 		}
 		rule = head + "\n" + rule
 	}
@@ -242,7 +255,10 @@ func misheard(term string) int {
 	}
 	return han + (latin+1)/2
 }
-func Run(ctx context.Context, c Config, text string, terms []string, keychain Keychain, local Local) (string, string) {
+
+// Run refines text with the engine of c; keep are heard words that must
+// stay, see Prompt.
+func Run(ctx context.Context, c Config, text string, terms []string, keychain Keychain, local Local, keep ...string) (string, string) {
 	if c.Mode == "off" {
 		return text, "disabled"
 	}
@@ -253,7 +269,7 @@ func Run(ctx context.Context, c Config, text string, terms []string, keychain Ke
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	prompt := Prompt(text, terms, c.Mode)
+	prompt := Prompt(text, terms, c.Mode, keep...)
 	type reply struct {
 		text string
 		err  error

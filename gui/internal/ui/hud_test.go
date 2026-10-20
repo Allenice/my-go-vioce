@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -19,38 +20,56 @@ func TestTailTextKeepsNewestWords(t *testing.T) {
 	}
 }
 
-func TestHUDLineAndPreviewFollowPhase(t *testing.T) {
+func TestHUDLineWordsAndPreviewFollowPhase(t *testing.T) {
 	cases := []struct {
-		s             Snapshot
-		line, preview string
+		s                    Snapshot
+		line, words, preview string
 	}{
-		{Snapshot{Phase: "starting"}, "正在准备…", ""},
-		{Snapshot{Phase: "recording"}, "请说话…", ""},
-		{Snapshot{Phase: "recording", Partial: "你好"}, "正在聆听…", "你好"},
-		{Snapshot{Phase: "finalizing", Partial: "你好世界"}, "正在识别…", "你好世界"},
-		{Snapshot{Phase: "refining", Partial: "你好", Original: "你好。"}, "AI 润色中…  可直接插入原文", "你好。"},
-		{Snapshot{Phase: "ready", Status: "已取消", Partial: "旧文字"}, "已取消", ""},
+		{Snapshot{Phase: "starting"}, "正在准备…", "", ""},
+		{Snapshot{Phase: "recording"}, "请说话…", "", ""},
+		{Snapshot{Phase: "recording", Partial: "你好"}, "请说话…", "你好", ""},
+		{Snapshot{Phase: "finalizing", Partial: "你好世界"}, "正在识别…", "你好世界", ""},
+		{Snapshot{Phase: "refining", Partial: "你好", Original: "你好。"}, "AI 润色中…  可直接插入原文", "", "你好。"},
+		{Snapshot{Phase: "ready", Status: "已取消", Partial: "旧文字"}, "已取消", "", ""},
 	}
 	for _, c := range cases {
-		if line, preview := hudLine(c.s), hudPreview(c.s); line != c.line || preview != c.preview {
-			t.Fatalf("%+v: %q %q", c.s, line, preview)
+		if line, words, preview := hudLine(c.s), hudWords(c.s), hudPreview(c.s); line != c.line || words != c.words || preview != c.preview {
+			t.Fatalf("%+v: %q %q %q", c.s, line, words, preview)
 		}
 	}
 }
 
-func TestHUDShowsPreviewText(t *testing.T) {
+func TestHUDShowsWordsInTheCapsule(t *testing.T) {
 	var rec intents
 	v := testView(&rec)
 	long := strings.Repeat("一二三四五六七八九十", 12) + "最新的话"
 	v.Snapshot.SpeechActive, v.Snapshot.Phase, v.Snapshot.Partial = true, "recording", long
 	tt := ui.NewTester(v.DrawHUD, HUDWidth, HUDHeight)
-	if !tt.HasText(tailText(long, previewTail)) || !tt.HasText("正在聆听…") {
-		t.Fatalf("preview %q", tt.Texts())
+	if r, ok := tt.Find(tailText(long, tickerTail)); !ok || r.W != tickerWidth || tt.HasText("请说话…") {
+		t.Fatalf("words %q %+v", tt.Texts(), r)
 	}
-	v.Snapshot.Phase, v.Snapshot.Partial = "recording", ""
+	v.Snapshot.Partial = ""
 	tt.Frame()
-	if tt.HasText(tailText(long, previewTail)) || !tt.HasText("请说话…") {
-		t.Fatalf("empty preview %q", tt.Texts())
+	if !tt.HasText("请说话…") {
+		t.Fatalf("placeholder %q", tt.Texts())
+	}
+}
+
+func TestSlideMovesNewWordsIn(t *testing.T) {
+	var s slide
+	start := time.Unix(100, 0)
+	if got := s.step(120, start); got != 120 {
+		t.Fatalf("first words slid: %v", got)
+	}
+	mid := s.step(180, start.Add(35*time.Millisecond))
+	if mid <= 120 || mid >= 180 {
+		t.Fatalf("new words jumped: %v", mid)
+	}
+	if got := s.step(180, start.Add(600*time.Millisecond)); got != 180 {
+		t.Fatalf("slide did not settle: %v", got)
+	}
+	if got := s.step(40, start.Add(3*time.Second)); got != 40 {
+		t.Fatalf("a new line after a pause slid: %v", got)
 	}
 }
 
@@ -80,6 +99,7 @@ func TestHUDCommitOnlyWhenAllowed(t *testing.T) {
 		}
 		tt.SetScale(2)
 		tt.Frame()
+		tt.Advance(time.Second)
 		f, err := os.Create(filepath.Join(dir, "hud.png"))
 		if err != nil {
 			t.Fatal(err)

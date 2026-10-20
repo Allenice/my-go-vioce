@@ -9,7 +9,7 @@ import (
 )
 
 // PermissionsPage is the index of the permissions onboarding in pages.
-const PermissionsPage = 4
+const PermissionsPage = 5
 
 var permissionIcons = map[permission.Name]*ui.SVG{
 	permission.Bluetooth:     iconBolt,

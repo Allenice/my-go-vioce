@@ -7,7 +7,9 @@ import (
 
 	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
+	"github.com/vfasky/my-ai-audio/gui/internal/asr"
 	"github.com/vfasky/my-ai-audio/gui/internal/firmware"
+	"github.com/vfasky/my-ai-audio/gui/internal/jev"
 	"github.com/vfasky/my-ai-audio/gui/internal/permission"
 	"github.com/vfasky/my-ai-audio/gui/internal/protocol"
 	"github.com/vfasky/my-ai-audio/gui/internal/refinement"
@@ -39,6 +41,28 @@ type Snapshot struct {
 	Feedback    string
 	FeedbackOK  bool
 	FeedbackFor refinement.Config
+	// ASR is the saved recognition engine. ASRTesting and ASRFeedback are
+	// the connection test and the last action of the recognition page, for
+	// ASRFeedbackFor.
+	ASR            asr.Config
+	ASRTesting     bool
+	ASRFeedback    string
+	ASRFeedbackOK  bool
+	ASRFeedbackFor asr.Config
+	// OpenAtLogin is whether the system starts go-voice at login.
+	// LoginApproval: the login item waits for the user to allow it in
+	// System Settings. LoginFeedback is how the last change ended.
+	// Jev is the saved vocabulary check; JevTesting and JevFeedback the
+	// connection test and the last action of its tab, for JevFeedbackFor.
+	Jev             jev.Config
+	JevTesting      bool
+	JevFeedback     string
+	JevFeedbackOK   bool
+	JevFeedbackFor  jev.Config
+	OpenAtLogin     bool
+	LoginApproval   bool
+	LoginFeedback   string
+	LoginFeedbackOK bool
 }
 type Actions struct {
 	FirmwareScan, FirmwareInstall func()
@@ -64,6 +88,25 @@ type Actions struct {
 	OpenSettings      func(permission.Name)
 	// Commit skips refinement and inserts the ASR original.
 	Commit func()
+	// Quit quits the app, as the menu bar's Quit does.
+	Quit func()
+	// ConfigureASR saves the recognition engine, and a typed API key to the
+	// keychain; TestASR checks the engine with the typed key, else the
+	// saved one; DeleteASRKey removes the saved key.
+	ConfigureASR func(asr.Config, string)
+	TestASR      func(asr.Config, string)
+	DeleteASRKey func()
+	// SetOpenAtLogin adds go-voice to the login items, or removes it;
+	// OpenLoginItems opens them in System Settings.
+	SetOpenAtLogin func(bool)
+	// ConfigureJev saves the vocabulary check, and a typed API key to the
+	// keychain under its endpoint; TestJev judges a fixed sample at the
+	// drafted endpoint and model with the typed key, else the saved one;
+	// DeleteJevKey removes the key saved for the drafted endpoint.
+	ConfigureJev   func(jev.Config, string)
+	TestJev        func(jev.Config, string)
+	DeleteJevKey   func()
+	OpenLoginItems func()
 }
 type View struct {
 	Page                  int
@@ -77,9 +120,19 @@ type View struct {
 	vocabTab int
 	locked   bool
 	Config   refinement.Config
-	Loaded   bool
+	// ASR is the recognition engine drafted on its page; asrSecret the
+	// typed API key.
+	ASR       asr.Config
+	asrSecret string
+	// Jev is the vocabulary check drafted on its tab; jevSecret the typed
+	// API key.
+	Jev       jev.Config
+	jevSecret string
+	Loaded    bool
 	// AppIcon is the packaged app icon shown at the top of the sidebar.
 	AppIcon *ui.Bitmap
+	// slide scrolls the words of the dictation capsule.
+	slide slide
 }
 
 // TitleBarHeight is the inset title bar the window reserves for the traffic
@@ -94,9 +147,11 @@ var pages = []struct {
 }{
 	{"voice", "设备与语音", "从 FoloToy AI Passport 接收音频并在本机转写", iconWave},
 	{"vocabulary", "词库", "下一次语音开始时注入 Top 100", iconBook},
+	{"recognition", "语音识别", "Apple 本地识别，或支付宝 MaaS 在线实时识别", iconCaption},
 	{"refinement", "AI 润色", "本地优先，失败时保留 ASR 原文", iconSparkle},
 	{"firmware", "固件安装", "通过 USB 安装随应用提供的固件", iconChip},
 	{"permissions", "权限", "开始使用前授予系统权限，避免使用中途失败", iconShield},
+	{"general", "通用", "登录时打开等应用行为", iconSliders},
 }
 
 var (
@@ -112,6 +167,8 @@ var (
 func (v *View) Draw(c *ui.Context) {
 	if !v.Loaded {
 		v.Config = v.Snapshot.Config
+		v.ASR = v.Snapshot.ASR
+		v.Jev = v.Snapshot.Jev
 		v.Loaded = true
 	}
 	c.SetTheme(theme)
@@ -144,7 +201,7 @@ func (v *View) sidebar(c *ui.Context) {
 			nav := pages[min(max(v.Page, 0), len(pages)-1)].id
 			list := ui.Sidebar(c, &nav, func() {
 				ui.SidebarSection(c, "工作区", nil, func() {
-					for _, p := range pages {
+					for _, p := range pages[:GeneralPage] {
 						item := ui.SidebarItem(c, p.id, p.icon, p.title)
 						if p.id == "vocabulary" && len(v.Snapshot.Terms) > 0 {
 							item.Children(func() {
@@ -156,6 +213,11 @@ func (v *View) sidebar(c *ui.Context) {
 								ui.Badge(c, fmt.Sprint(missing)).Background(colOrange).TextColor(ui.Hex("#FFFFFF"))
 							})
 						}
+					}
+				})
+				ui.SidebarSection(c, "应用", nil, func() {
+					for _, p := range pages[GeneralPage:] {
+						ui.SidebarItem(c, p.id, p.icon, p.title)
 					}
 				})
 			}).Grow(1).Background(ui.Transparent).Label("导航")
@@ -182,16 +244,33 @@ func (v *View) connectionCard(c *ui.Context) {
 	case s.Selected != "":
 		dot, title = colOrange, "等待设备"
 	}
-	ui.Column(c).Margin(0, 10, 10).Padding(10, 12).Gap(4).Radius(14).Background(ui.RGBA(0, 0, 0, 0.28)).Children(func() {
-		ui.Row(c).Gap(8).Children(func() {
-			statusDot(c, dot)
-			ui.Text(c, title).FontSize(12).FontWeight(600).SingleLine()
+	ui.Row(c).Margin(0, 10, 10).Padding(10, 8, 10, 12).Gap(8).Radius(14).Background(ui.RGBA(0, 0, 0, 0.28)).Children(func() {
+		ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
+			ui.Row(c).Gap(8).Children(func() {
+				statusDot(c, dot)
+				ui.Text(c, title).FontSize(12).FontWeight(600).SingleLine()
+			})
+			detail := "固件 " + fallback(s.Firmware, "未知")
+			if s.Selected == "" {
+				detail = "尚未选择设备"
+			}
+			ui.Text(c, detail).FontSize(11).TextColor(colMuted).SingleLine()
 		})
-		detail := "固件 " + fallback(s.Firmware, "未知")
-		if s.Selected == "" {
-			detail = "尚未选择设备"
+		// Quitting would interrupt a firmware write.
+		busy := s.Install.Busy()
+		tip := "退出 go-voice"
+		if busy {
+			tip = "固件安装中，完成后才能退出"
 		}
-		ui.Text(c, detail).FontSize(11).TextColor(colMuted).SingleLine()
+		quit := ui.ButtonBase(c.Key("quit")).Size(30, 30).Radius(15).Center().Shrink(0).Label("退出 go-voice").Tooltip(tip).Disabled(busy)
+		quit.Background(pick(quit.Hovered() && !busy, colPillHover, ui.Transparent)).TextColor(pick(quit.Hovered() && !busy, colText, colMuted))
+		if busy {
+			quit.Opacity(0.38)
+		}
+		quit.Children(func() { ui.Icon(c, iconPower).Size(15, 15) })
+		if quit.Clicked() && !busy {
+			v.Actions.Quit()
+		}
 	})
 }
 
@@ -210,11 +289,15 @@ func (v *View) pane(c *ui.Context) {
 					case 1:
 						v.vocabulary(c)
 					case 2:
-						v.refinement(c)
+						v.recognition(c)
 					case 3:
+						v.refinement(c)
+					case 4:
 						v.firmware(c)
 					case PermissionsPage:
 						v.permissions(c)
+					case GeneralPage:
+						v.general(c)
 					}
 				})
 			})
@@ -227,6 +310,9 @@ func (v *View) pane(c *ui.Context) {
 			})
 			ui.Row(c).Height(30).PaddingX(12).Gap(8).Radius(15).Material(glass.Glass{}).Children(func() {
 				label, state := modelStatus(v.Snapshot.Model)
+				if v.Snapshot.ASR.Online() {
+					label, state = "在线识别 · 支付宝 MaaS", modelReady
+				}
 				statusDot(c, pick(state == modelReady, colGreen, pick(state == modelFailed, colRed, colFaint)))
 				ui.Text(c, label).FontSize(11.5).TextColor(colSubtle).SingleLine().MaxWidth(220)
 			})
@@ -348,10 +434,14 @@ func (v *View) device(c *ui.Context) {
 	if missing := s.Permissions.Missing(); len(missing) > 0 {
 		v.permissionBanner(c, missing)
 	}
+	where := "在本机实时转写。"
+	if s.ASR.Online() {
+		where = "经支付宝 MaaS 在线实时转写。"
+	}
 	ui.RichText(c,
 		ui.Span{Text: "仅使用 "},
 		ui.Span{Text: "FoloToy AI Passport 音频", Weight: 650},
-		ui.Span{Text: "在本机实时转写。不保存、不回放音频，也不使用 Mac 麦克风；最终文本插入到你选择的应用。"},
+		ui.Span{Text: where + "不保存、不回放音频，也不使用 Mac 麦克风；最终文本插入到你选择的应用。"},
 	).FontSize(16).LineHeight(1.65).TextColor(colSubtle)
 
 	live, working := isLive(s.Phase), isWorking(s.Phase)
@@ -545,7 +635,7 @@ func (v *View) firmware(c *ui.Context) {
 }
 
 func (v *View) vocabulary(c *ui.Context) {
-	tabs := []string{fmt.Sprintf("词条 · %d", len(v.Snapshot.Terms)), fmt.Sprintf("替换词 · %d", len(v.Snapshot.Replacements))}
+	tabs := []string{fmt.Sprintf("词条 · %d", len(v.Snapshot.Terms)), fmt.Sprintf("替换词 · %d", len(v.Snapshot.Replacements)), "Jev 判断"}
 	ui.Row(c).Gap(10).Children(func() {
 		segmented(c, "vocab-tabs", &v.vocabTab, tabs)
 		ui.Box(c).Grow(1)
@@ -559,8 +649,12 @@ func (v *View) vocabulary(c *ui.Context) {
 	if v.Snapshot.VocabFeedback != "" {
 		feedback(c, v.Snapshot.VocabFeedback, v.Snapshot.VocabFeedbackOK)
 	}
-	if v.vocabTab == 1 {
+	switch v.vocabTab {
+	case 1:
 		v.replacements(c)
+		return
+	case 2:
+		v.judge(c)
 		return
 	}
 	notice(c, "vocab", "词条帮助识别和 AI 润色认出专有名词：下一次语音开始时应用 Top 100；锁定词不能被 AI 自动删除。", false)
@@ -678,6 +772,92 @@ func sourceLabel(s string) string {
 		return "导入"
 	}
 	return s
+}
+
+// recognition is the page of the speech recognition engine: Apple's local
+// SpeechAnalyzer, or an online Alipay MaaS realtime model.
+func (v *View) recognition(c *ui.Context) {
+	group(c, "asr-engine", "识别引擎", nil, func() {
+		row(c, "asr-engine", func() {
+			label(c, "引擎", asrHelp(v.ASR))
+			v.asrSelect(c)
+		})
+	})
+	s := v.Snapshot
+	if !v.ASR.Online() {
+		notice(c, "asr-local", "本地识别不联网，需要“语音识别”权限和已下载的中文语音模型；词库 Top 100 作为识别提示。", false)
+	} else {
+		when := "实时"
+		if !v.ASR.Streaming() {
+			when = "在松开按键后整段"
+		}
+		notice(c, "asr-online", "在线识别：每次语音的音频会"+when+"发送到支付宝 MaaS（"+asr.Host+"）转写，不发送词库，也不在本机保存音频。连接失败时本次语音结束，不会自动改用本地识别。", true)
+		group(c, "asr-key", "支付宝 MaaS", nil, func() {
+			field(c, "API key", func() {
+				ui.TextInput(c, &v.asrSecret).Password().Placeholder("仅保存到 macOS 钥匙串").Grow(1).Label("支付宝 MaaS API key")
+			})
+		})
+	}
+	ui.Row(c).Gap(12).Wrap().GapY(12).Children(func() {
+		if v.ASR.Online() && pill(c, "asr-delete-key", "删除凭据", pillDanger, nil, nil, false) {
+			v.Actions.DeleteASRKey()
+		}
+		ui.Box(c).Grow(1).MinWidth(24).Height(1).Background(colRule)
+		if v.ASR.Online() && pill(c, "asr-test", pickText(s.ASRTesting, "正在测试…", "测试连接"), pillSecondary, nil, nil, s.ASRTesting) {
+			v.Actions.TestASR(v.ASR, v.asrSecret)
+		}
+		if pill(c, "asr-save", "保存设置", pillPrimary, nil, iconArrow, false) {
+			v.Actions.ConfigureASR(v.ASR, v.asrSecret)
+			v.asrSecret = ""
+		}
+	})
+	if s.ASRFeedback != "" && !s.ASRTesting && s.ASRFeedbackFor == v.ASR {
+		feedback(c, s.ASRFeedback, s.ASRFeedbackOK)
+	}
+}
+
+// asrSelect is the drop-down of the recognition engines, a capsule like the
+// segmented controls.
+func (v *View) asrSelect(c *ui.Context) {
+	current := asr.ChoiceOf(v.ASR)
+	id := current.ID
+	sel := ui.SelectBase(c.Key("asr-select"), &id)
+	sel.Trigger.Height(32).PaddingX(14).Gap(10).Radius(999).Shrink(0).Border(1, colHairline).Label("选择识别引擎").
+		Background(pick(sel.Trigger.Hovered(), colPill, colWell)).Children(func() {
+		ui.Text(c, current.Label).FontSize(12.5).FontWeight(500).SingleLine()
+		ui.Icon(c, iconChevron).Size(12, 12).TextColor(colMuted)
+	})
+	sel.Popup(func(panel ui.Element) {
+		panel.Margin(6, 0, 0, 0).Padding(4).Gap(2).Radius(14).Background(colCard).Border(1, colHairline).Shadow(0, 8, 24, 0, ui.RGBA(0, 0, 0, 0.45))
+		for _, ch := range asr.Choices {
+			item := sel.Item(ch.ID).Height(30).PaddingX(10).Gap(8).Radius(10)
+			if item.Highlighted() {
+				item.Background(colPillHover)
+			}
+			item.Children(func() {
+				ui.Icon(c, iconCheck).Size(12, 12).TextColor(pick(ch.ID == current.ID, colText, ui.Transparent))
+				ui.Text(c, ch.Label).FontSize(12.5).SingleLine()
+			})
+		}
+	})
+	if sel.Trigger.Changed() {
+		for _, ch := range asr.Choices {
+			if ch.ID == id {
+				v.ASR = ch.Config
+			}
+		}
+	}
+}
+
+// asrHelp says what the chosen engine does with the audio.
+func asrHelp(c asr.Config) string {
+	switch {
+	case c.Streaming():
+		return "在线流式识别：边说边出字，松开按键后返回最终结果。"
+	case c.Online():
+		return "整段识别：说话时不显示文字，松开按键后上传整段音频，再返回识别结果。"
+	}
+	return "默认。Apple SpeechAnalyzer 在本机识别，音频不离开 Mac。"
 }
 
 func (v *View) refinement(c *ui.Context) {

@@ -14,12 +14,14 @@ public struct Command: Decodable {
     self = try JSONDecoder().decode(Command.self, from: data)
     guard
       [
-        "warmup", "start", "pcm", "finish", "cancel", "refine", "insert", "enter", "delete",
-        "clear", "ping", "shutdown", "permissions", "request-permission",
+        "warmup", "begin", "start", "pcm", "finish", "cancel", "refine", "insert", "enter",
+        "delete", "clear", "ping", "shutdown", "permissions", "request-permission",
       ].contains(type), (text?.utf8.count ?? 0) <= 12000, (terms?.count ?? 0) <= 100,
       terms?.allSatisfy({ $0.utf8.count <= 256 }) ?? true
     else { throw BridgeError.invalid }
-    if ["start", "pcm", "finish", "cancel", "refine", "insert"].contains(type), sessionId == nil {
+    if ["begin", "start", "pcm", "finish", "cancel", "refine", "insert"].contains(type),
+      sessionId == nil
+    {
       throw BridgeError.invalid
     }
     if type == "request-permission", !Permission.speechNames.contains(text ?? "") {

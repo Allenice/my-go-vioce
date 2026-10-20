@@ -401,3 +401,23 @@ func TestFidelityAllowsRemovedFillers(t *testing.T) {
 		}
 	}
 }
+
+func TestPromptKeepsWhatJevKept(t *testing.T) {
+	p := Prompt("大家意见很一致", []string{"伊智"}, "light", "一致")
+	if !strings.Contains(p, KeepRule) || !strings.Contains(p, `"keep":["一致"]`) || strings.Contains(p, `"candidates"`) {
+		t.Fatalf("prompt %s", p)
+	}
+	if p := Prompt("大家意见很一致", []string{"伊智"}, "light"); strings.Contains(p, KeepRule) || !strings.Contains(p, `"candidates"`) {
+		t.Fatalf("prompt without keep %s", p)
+	}
+}
+
+func TestSpansFindEveryPlace(t *testing.T) {
+	spans := Spans("一致科技和一致", []string{"伊智"})
+	if len(spans) != 2 || spans[0].Start != 0 || spans[1].Start != 5 || spans[1].End != 7 {
+		t.Fatalf("spans %+v", spans)
+	}
+	if c := Candidates("一致科技和一致", []string{"伊智"}); len(c) != 1 {
+		t.Fatalf("candidates %+v", c)
+	}
+}

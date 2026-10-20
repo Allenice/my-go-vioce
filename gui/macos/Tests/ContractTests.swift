@@ -28,6 +28,11 @@ final class ContractTests: XCTestCase {
     XCTAssertEqual(Permission.automationState(-600), "unknown")
     XCTAssertEqual(Permission.event("bluetooth", "granted")["permission"] as? String, "bluetooth")
   }
+  func testBeginNeedsSession() throws {
+    XCTAssertEqual(
+      try Command(data: Data(#"{"type":"begin","sessionId":3}"#.utf8)).sessionId, 3)
+    XCTAssertThrowsError(try Command(data: Data(#"{"type":"begin"}"#.utf8)))
+  }
   func testSessionIdentity() {
     var guardState = SessionGuard()
     XCTAssertTrue(guardState.start(1))

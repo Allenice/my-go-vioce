@@ -7,7 +7,9 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/vfasky/my-ai-audio/gui/internal/asr"
 	"github.com/vfasky/my-ai-audio/gui/internal/firmware"
+	"github.com/vfasky/my-ai-audio/gui/internal/jev"
 	"github.com/vfasky/my-ai-audio/gui/internal/permission"
 	"github.com/vfasky/my-ai-audio/gui/internal/refinement"
 	"github.com/vfasky/my-ai-audio/gui/internal/vocabulary"
@@ -22,7 +24,16 @@ type intents struct {
 	previous                                 []string
 	replaced                                 []vocabulary.Replacement
 	replacedPrevious, deletedReplacements    []string
-	imports, exports                         int
+	imports, exports, quits                  int
+	asrSaved, asrTested                      []asr.Config
+	asrKeys                                  []string
+	asrDeleted                               int
+	login                                    []bool
+	loginItems                               int
+	jevSaved                                 []jev.Config
+	jevKeys                                  []string
+	jevTested                                []jev.Config
+	jevDeleted                               int
 }
 
 func testView(rec *intents) *View {
@@ -41,7 +52,14 @@ func testView(rec *intents) *View {
 			},
 			DeleteReplacement: func(from string) { rec.deletedReplacements = append(rec.deletedReplacements, from) },
 			ImportVocabulary:  func() { rec.imports++ },
+			Quit:              func() { rec.quits++ },
 			ExportVocabulary:  func() { rec.exports++ },
+			ConfigureASR: func(c asr.Config, key string) {
+				rec.asrSaved = append(rec.asrSaved, c)
+				rec.asrKeys = append(rec.asrKeys, key)
+			},
+			TestASR:      func(c asr.Config, _ string) { rec.asrTested = append(rec.asrTested, c) },
+			DeleteASRKey: func() { rec.asrDeleted++ },
 			Configure: func(_ refinement.Config, key string) {
 				rec.configure++
 				rec.configureKeys = append(rec.configureKeys, key)
@@ -52,6 +70,14 @@ func testView(rec *intents) *View {
 			},
 			RequestPermission: func(n permission.Name) { rec.requested = append(rec.requested, n) },
 			OpenSettings:      func(n permission.Name) { rec.settings = append(rec.settings, n) },
+			SetOpenAtLogin:    func(on bool) { rec.login = append(rec.login, on) },
+			OpenLoginItems:    func() { rec.loginItems++ },
+			ConfigureJev: func(c jev.Config, key string) {
+				rec.jevSaved = append(rec.jevSaved, c)
+				rec.jevKeys = append(rec.jevKeys, key)
+			},
+			TestJev:      func(c jev.Config, _ string) { rec.jevTested = append(rec.jevTested, c) },
+			DeleteJevKey: func() { rec.jevDeleted++ },
 		},
 	}
 }
@@ -122,7 +148,7 @@ func TestSidebarNavigatesAndInstallIsGated(t *testing.T) {
 	var rec intents
 	v := testView(&rec)
 	tt := newTester(v)
-	if err := tt.Click("固件安装"); err != nil || v.Page != 3 {
+	if err := tt.Click("固件安装"); err != nil || v.Page != 4 {
 		t.Fatalf("navigate: %v page %d", err, v.Page)
 	}
 	_ = tt.Click("确认安装随附固件")
@@ -137,7 +163,7 @@ func TestSidebarNavigatesAndInstallIsGated(t *testing.T) {
 func TestRefinementSegmentsUpdateDraft(t *testing.T) {
 	var rec intents
 	v := testView(&rec)
-	v.Page = 2
+	v.Page = 3
 	tt := newTester(v)
 	if err := tt.Click("OpenAI 兼容接口"); err != nil || v.Config.Engine != "remote" {
 		t.Fatalf("engine: %v %q", err, v.Config.Engine)
@@ -165,7 +191,7 @@ func TestRefinementSegmentsUpdateDraft(t *testing.T) {
 func TestRemoteConnectionTest(t *testing.T) {
 	var rec intents
 	v := testView(&rec)
-	v.Page = 2
+	v.Page = 3
 	tt := newTester(v)
 	// Typed on the page, not saved yet.
 	v.Config.Endpoint, v.Config.Model, v.secret = "https://provider.example/v1", "m", "typed"
@@ -196,7 +222,7 @@ func TestRemoteConnectionTest(t *testing.T) {
 func TestSaveSettingsHandsOverTypedKey(t *testing.T) {
 	var rec intents
 	v := testView(&rec)
-	v.Page = 2
+	v.Page = 3
 	tt := newTester(v)
 	v.Config.Endpoint, v.secret = "https://provider.example/v1", "typed"
 	tt.Frame()
@@ -282,6 +308,80 @@ func TestVocabularyImportExport(t *testing.T) {
 	}
 }
 
+func TestRecognitionDropdownChoosesOnlineModel(t *testing.T) {
+	var rec intents
+	v := testView(&rec)
+	v.Page = 2
+	tt := newTester(v)
+	// Local by default: no key, no test, no disclosure.
+	if !tt.HasText("Apple 本地（SpeechAnalyzer）") || tt.HasText("测试连接") || tt.HasText("删除凭据") {
+		t.Fatalf("local texts %q", tt.Texts())
+	}
+	if err := tt.Click("选择识别引擎"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.Click("支付宝 MaaS · Fun-ASR 实时"); err != nil || v.ASR != asr.Choices[1].Config {
+		t.Fatalf("choose: %v %+v", err, v.ASR)
+	}
+	if !tt.HasText("在线识别：每次语音的音频会实时发送到支付宝 MaaS（maas-api.antdigital.com）转写，不发送词库，也不在本机保存音频。连接失败时本次语音结束，不会自动改用本地识别。") {
+		t.Fatalf("online disclosure missing: %q", tt.Texts())
+	}
+	v.asrSecret = "typed"
+	tt.Frame()
+	if err := tt.Click("测试连接"); err != nil || len(rec.asrTested) != 1 || rec.asrTested[0].Model != "fun-asr-realtime" {
+		t.Fatalf("test: %v %+v", err, rec.asrTested)
+	}
+	if err := tt.Click("保存设置"); err != nil || len(rec.asrSaved) != 1 || rec.asrKeys[0] != "typed" || v.asrSecret != "" {
+		t.Fatalf("save: %v %+v %q", err, rec, v.asrSecret)
+	}
+	if err := tt.Click("删除凭据"); err != nil || rec.asrDeleted != 1 {
+		t.Fatalf("delete: %v", err)
+	}
+	// Feedback shows for the draft it describes only.
+	v.Snapshot.ASRFeedback, v.Snapshot.ASRFeedbackOK, v.Snapshot.ASRFeedbackFor = "连接成功", true, v.ASR
+	tt.Frame()
+	if !tt.HasText("连接成功") {
+		t.Fatal("feedback missing")
+	}
+	v.ASR = asr.Choices[2].Config
+	tt.Frame()
+	if tt.HasText("连接成功") || !tt.HasText("支付宝 MaaS · Paraformer 实时 v2") {
+		t.Fatalf("stale feedback or label: %q", tt.Texts())
+	}
+}
+
+func TestRecognitionDropdownChoosesWholeRecording(t *testing.T) {
+	var rec intents
+	v := testView(&rec)
+	v.Page = 2
+	tt := newTester(v)
+	_ = tt.Click("选择识别引擎")
+	if err := tt.Click("支付宝 MaaS · Qwen3-ASR-Flash（非流式）"); err != nil || v.ASR != asr.Choices[3].Config {
+		t.Fatalf("choose: %v %+v", err, v.ASR)
+	}
+	if !tt.HasText("在线识别：每次语音的音频会在松开按键后整段发送到支付宝 MaaS") || !tt.HasText(asrHelp(v.ASR)) || !tt.HasText("测试连接") {
+		t.Fatalf("texts %q", tt.Texts())
+	}
+}
+
+func TestSidebarQuitsUnlessInstalling(t *testing.T) {
+	var rec intents
+	v := testView(&rec)
+	tt := newTester(v)
+	if err := tt.Click("退出 go-voice"); err != nil || rec.quits != 1 {
+		t.Fatalf("quit: %v %d", err, rec.quits)
+	}
+	v.Snapshot.Install.Phase = "writing"
+	if !v.Snapshot.Install.Busy() {
+		t.Skip("writing is not a busy install phase")
+	}
+	tt.Frame()
+	_ = tt.Click("退出 go-voice")
+	if rec.quits != 1 {
+		t.Fatal("quit during a firmware install")
+	}
+}
+
 func TestWaveLevelsMirrorNewestAtCentre(t *testing.T) {
 	var bins [32]float64
 	bins[31] = 1
@@ -345,7 +445,7 @@ func TestSnapshots(t *testing.T) {
 func TestFirmwareErrorShowsCodeAndStage(t *testing.T) {
 	var rec intents
 	v := testView(&rec)
-	v.Page = 3
+	v.Page = 4
 	v.Snapshot.Install = firmware.State{Phase: "error", HelperReady: true, ErrorCode: "PREFLIGHT_READ_UNAVAILABLE", FailedStage: "preflight", Message: firmware.ErrorLabel("PREFLIGHT_READ_UNAVAILABLE")}
 	tt := newTester(v)
 	if !tt.HasText("错误码 PREFLIGHT_READ_UNAVAILABLE · 失败阶段：安装前检查") {
@@ -375,5 +475,67 @@ func TestPermissionsOnboardingActions(t *testing.T) {
 	}
 	if !tt.HasText("必需权限已完成 1 / 3 项。授权后无需重启，状态会自动刷新。") {
 		t.Fatalf("summary: %q", tt.Texts())
+	}
+}
+
+func TestGeneralPageTogglesOpenAtLogin(t *testing.T) {
+	var rec intents
+	v := testView(&rec)
+	tt := newTester(v)
+	if err := tt.Click("通用"); err != nil || v.Page != GeneralPage {
+		t.Fatalf("navigate: %v page %d", err, v.Page)
+	}
+	if err := tt.Click("登录时打开 go-voice"); err != nil || len(rec.login) != 1 || !rec.login[0] {
+		t.Fatalf("enable: %v %v", err, rec.login)
+	}
+	v.Snapshot.OpenAtLogin = true
+	tt.Frame()
+	if err := tt.Click("登录时打开 go-voice"); err != nil || len(rec.login) != 2 || rec.login[1] {
+		t.Fatalf("disable: %v %v", err, rec.login)
+	}
+	v.Snapshot.OpenAtLogin, v.Snapshot.LoginApproval = false, true
+	tt.Frame()
+	if err := tt.Click("打开登录项"); err != nil || rec.loginItems != 1 {
+		t.Fatalf("login items: %v %d", err, rec.loginItems)
+	}
+}
+
+func TestVocabularyJevTab(t *testing.T) {
+	var rec intents
+	v := testView(&rec)
+	v.Page = 1
+	tt := newTester(v)
+	if err := tt.Click("Jev 判断"); err != nil {
+		t.Fatal(err)
+	}
+	if tt.HasText("api.typesafe.ai") {
+		t.Fatal("privacy notice while off")
+	}
+	if err := tt.Click("启用 Jev 词库判断"); err != nil || !v.Jev.Enabled {
+		t.Fatalf("switch: %v %+v", err, v.Jev)
+	}
+	if !tt.HasText("api.typesafe.ai") {
+		t.Fatalf("privacy notice missing: %q", tt.Texts())
+	}
+	if err := tt.Click("支付宝 MaaS"); err != nil || v.Jev.Endpoint != "https://maas-api.antdigital.com/v1/systemone" || v.Jev.Model != "jev-1.13" {
+		t.Fatalf("preset: %v %+v", err, v.Jev)
+	}
+	tt.Frame()
+	if !tt.HasText("发送到 maas-api.antdigital.com") {
+		t.Fatalf("privacy notice names the provider: %q", tt.Texts())
+	}
+	if err := tt.Click("测试连接"); err != nil || len(rec.jevTested) != 1 || rec.jevTested[0].Model != "jev-1.13" {
+		t.Fatalf("test: %v %v", err, rec.jevTested)
+	}
+	if err := tt.Click("保存设置"); err != nil || len(rec.jevSaved) != 1 || !rec.jevSaved[0].Enabled || rec.jevSaved[0].Endpoint != "https://maas-api.antdigital.com/v1/systemone" {
+		t.Fatalf("save: %v %+v", err, rec.jevSaved)
+	}
+	v.Snapshot.JevFeedback, v.Snapshot.JevFeedbackOK, v.Snapshot.JevFeedbackFor = "设置已保存", true, v.Jev
+	tt.Frame()
+	if !tt.HasText("设置已保存") {
+		t.Fatalf("feedback: %q", tt.Texts())
+	}
+	if err := tt.Click("删除凭据"); err != nil || rec.jevDeleted != 1 {
+		t.Fatalf("delete: %v %d", err, rec.jevDeleted)
 	}
 }

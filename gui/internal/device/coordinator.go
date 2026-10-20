@@ -28,6 +28,24 @@ type Coordinator struct {
 	buttons                            map[uint32]bool
 	buttonOrder                        []uint32
 	wire                               uint32
+	// StartTimeout bounds the wait for the recognizer's ready, 1.2 s when
+	// zero; the audio meanwhile is buffered.
+	StartTimeout time.Duration
+}
+
+const defaultStartTimeout = 1200 * time.Millisecond
+
+func (c *Coordinator) startTimeout() time.Duration {
+	if c.StartTimeout > 0 {
+		return c.StartTimeout
+	}
+	return defaultStartTimeout
+}
+
+// earlyFrames bounds the audio buffered before ready: 1.5 s, or the start
+// timeout when that is longer.
+func (c *Coordinator) earlyFrames() int {
+	return max(75, int(c.startTimeout()/(20*time.Millisecond)))
 }
 
 func (c *Coordinator) state(state string) Effect { return Effect{Type: "host_state", State: state} }
@@ -171,7 +189,7 @@ func (c *Coordinator) Tick(now time.Time) []Effect {
 	if !c.Active {
 		return nil
 	}
-	if !c.accepted && now.Sub(c.started) >= 1200*time.Millisecond {
+	if !c.accepted && now.Sub(c.started) >= c.startTimeout() {
 		return c.Cancel("Speech start timeout")
 	}
 	if !c.processing.IsZero() && now.Sub(c.processing) >= 60*time.Second {
@@ -192,7 +210,7 @@ func (c *Coordinator) consume(frames []protocol.PCM, now time.Time) []Effect {
 	}
 	if !c.accepted {
 		c.buffer = append(c.buffer, frames...)
-		if len(c.buffer) > 75 {
+		if len(c.buffer) > c.earlyFrames() {
 			return c.Cancel("Early audio buffer overflow")
 		}
 		return nil

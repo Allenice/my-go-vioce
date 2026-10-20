@@ -156,3 +156,22 @@ func TestCommitSkipsRefinementOnlyWhileRefining(t *testing.T) {
 		t.Fatal("late refinement replaced the committed original")
 	}
 }
+
+func TestStartTimeoutIsConfigurable(t *testing.T) {
+	now := time.Unix(1, 0)
+	c := Coordinator{}
+	start(&c, 1, 0, now)
+	if c.Tick(now.Add(1200 * time.Millisecond)); c.Active || c.Status != "Speech start timeout" {
+		t.Fatalf("default timeout: %v %q", c.Active, c.Status)
+	}
+	// An online recognizer connects first: it gets longer, and the audio of
+	// that time is buffered.
+	c = Coordinator{StartTimeout: 4 * time.Second}
+	start(&c, 2, 0, now)
+	if c.Tick(now.Add(2500 * time.Millisecond)); !c.Active {
+		t.Fatalf("online start timed out early: %q", c.Status)
+	}
+	if c.earlyFrames() != 200 {
+		t.Fatalf("early frames %d", c.earlyFrames())
+	}
+}
