@@ -6,6 +6,15 @@
 
 Each `## <version>` section is the release note of one signed `go-voice` release. `scripts/release.sh` requires the section in both language files; the Simplified Chinese section is signed into the update manifest and shown in the in-app update window, because the app interface is Chinese. Write user-visible changes only and keep both sections aligned. See [updates and releases](updates.md).
 
+## 0.5.0
+
+- Include 96,336 common Chinese words and a 12,854-term IT pack, both enabled by default. Manage them in Vocabulary > Public Dictionaries; saved changes apply to the next dictation. The two packs contain 108,623 distinct terms after deduplication.
+- Search the complete personal vocabulary and replacement targets for correction, including entries outside the Top 100 recognition hints. Public dictionaries stay separate from personal terms and do not consume recognition-hint slots.
+- Compare public suggestions, personal names and the original wording with explicit source information. Correctly spelled personal terms remain protected; public frequency alone does not trigger a replacement. Public packs require AI refinement or Jev, while explicit replacement rules still work with both off.
+- Retrieve public candidates locally from bundled, cached dictionaries. Only matching candidates enter an enabled remote model, never the full public dictionaries. Keep the original when candidate or context limits prevent a complete check.
+
+Install the Apple Silicon DMG on macOS 26 or later, or choose Check for Updates… in an installed release. Open Vocabulary > Public Dictionaries to manage the default-enabled Common and IT packs. Bundled firmware remains 0.2.0. Build and setup instructions are in the [application guide](https://github.com/vfasky/my-ai-audio/blob/go-voice-v0.5.0/gui/README.md). Real-dictation correction quality, installed-update permission retention and physical-device acceptance remain unverified.
+
 ## 0.4.0
 
 - Show the device and bundled firmware versions on the Firmware page, with an update reminder and a sidebar badge when the connected device is older than the copy packaged in go-voice. Bundled firmware is 0.2.0.

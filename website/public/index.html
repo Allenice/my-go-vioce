@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>go-voice — 用 FoloToy AI Passport 在 Mac 上语音输入</title>
-  <meta name="description" content="戴上 FoloToy AI Passport，按键说话。go-voice 默认在 Mac 本机转写，也可选择阿里云百炼 Omni WebSocket 或支付宝 MaaS，按词库纠正、AI 润色，再把文字插入正在使用的应用。不用 Mac 麦克风，不保存音频。">
+  <meta name="description" content="戴上 FoloToy AI Passport，按键说话。go-voice 在 Mac 本机转写，内置通用中文词库与 IT 行业包，保留个人专名与替换规则，可选 AI 润色，再把文字插入当前应用。不用 Mac 麦克风，不保存音频。">
   <meta property="og:title" content="go-voice">
-  <meta property="og:description" content="用 FoloToy AI Passport 在 Mac 上语音输入。本机识别或可选在线转写，词库纠正、AI 润色，文字直达光标。">
+  <meta property="og:description" content="用 FoloToy AI Passport 在 Mac 上语音输入。内置通用词库与 IT 行业包，个人专名独立保留，可选 AI 润色，文字直达光标。">
   <meta property="og:image" content="https://go-voice.yzsaas.net/img/ai-passport.webp">
   <meta property="og:url" content="https://go-voice.yzsaas.net/">
   <meta name="theme-color" content="#000000">
@@ -26,6 +26,7 @@
     <nav>
       <a href="#hardware">硬件</a>
       <a href="#features">功能</a>
+      <a href="#vocabulary">词库</a>
       <a href="#privacy">隐私</a>
       <a class="keep" href="#download">下载</a>
       <a href="#changelog">更新日志</a>
@@ -37,16 +38,16 @@
     <section class="hero">
       <span class="pill">macOS 26 · Apple 芯片 · 开源</span>
       <h1>开口说话，<br><em>文字直达光标</em></h1>
-      <p class="lead">戴上 FoloToy AI Passport，按键说话。go-voice 默认在 Mac 本机实时转写，也可选择在线识别；按你的词库纠正、AI 润色，再插入你正在使用的应用。</p>
+      <p class="lead">戴上 FoloToy AI Passport，按键说话。go-voice 默认在 Mac 本机实时转写，也可选择在线识别；内置通用词库与 IT 行业包，结合你的专名和替换规则纠正，再按需润色、插入当前应用。</p>
       <div class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
       <div class="cta">
-        <a class="btn primary" data-dl="appleSilicon" href="https://github.com/vfasky/my-ai-audio/releases/download/go-voice-v0.4.0/go-voice-0.4.0-macOS-AppleSilicon.dmg">
+        <a class="btn primary" data-dl="appleSilicon" href="https://github.com/vfasky/my-ai-audio/releases/download/go-voice-v0.5.0/go-voice-0.5.0-macOS-AppleSilicon.dmg">
           <svg viewBox="0 0 24 24"><path d="M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg>
           下载 Apple 芯片版
         </a>
         <a class="btn" href="#buy-hardware">购买硬件</a>
       </div>
-      <p class="meta"><span data-version>v0.4.0</span> · macOS 26+ · 需要 FoloToy AI Passport</p>
+      <p class="meta"><span data-version>v0.5.0</span> · macOS 26+ · 需要 FoloToy AI Passport</p>
       <div class="shot hero-shot">
         <img src="/img/app.webp" width="1160" height="886" alt="go-voice 设备与语音页面，显示实时音频波形">
       </div>
@@ -129,8 +130,8 @@
         </article>
         <article class="card">
           <div class="ico"><svg viewBox="0 0 24 24"><path d="M6 4h10a2 2 0 0 1 2 2v14l-4-2-4 2-4-2V4Zm4 5h4m-4 4h4"/></svg></div>
-          <h3>词库与替换词</h3>
-          <p>注入专有名词，按拼音和词边界纠正同音错字；替换规则在本地直接生效，关闭 AI 润色时也能用。支持 JSON 导入导出。</p>
+          <h3>公共词库与个人专名</h3>
+          <p>通用词库与 IT 包默认开启，为纠错提供候选；个人专名独立保留。显式替换规则在本地直接生效，支持个人词库 JSON 导入导出。</p>
         </article>
         <article class="card">
           <div class="ico"><svg viewBox="0 0 24 24"><path d="m12 3 1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8L12 3Zm6 12 .9 2.1L21 18l-2.1.9L18 21l-.9-2.1L15 18l2.1-.9L18 15Z"/></svg></div>
@@ -150,6 +151,40 @@
       </div>
     </section>
 
+    <section class="section" id="vocabulary" aria-labelledby="vocabulary-title">
+      <span class="pill">v0.5.0 · 本地词库</span>
+      <h2 id="vocabulary-title">常用词与专业词，<span>开箱就能用</span></h2>
+      <p class="sub">两套公共词库默认开启，去重后共 108,623 个词。日常表达有基础，技术术语有补充，你的专名也有自己的位置。</p>
+      <div class="grid dictionary-grid">
+        <article class="card">
+          <span class="dictionary-status">默认开启</span>
+          <h3>通用基础词库</h3>
+          <p class="dictionary-count">96,336 <span>词</span></p>
+          <p>从 Jieba 词典筛选常用中文词，在语音结束后为日常表达提供纠错候选。</p>
+          <p class="dictionary-source">来源：<a href="https://github.com/yanyiwu/gojieba" rel="noopener">Jieba / gojieba</a></p>
+        </article>
+        <article class="card">
+          <span class="dictionary-status">默认开启</span>
+          <h3>IT 行业包</h3>
+          <p class="dictionary-count">12,854 <span>词</span></p>
+          <p>补充编程、数据库与网络等中文术语，例如“初始化”“字符串”“实例化”。</p>
+          <p class="dictionary-source">来源：<a href="https://github.com/thunlp/THUOCL" rel="noopener">THUOCL 清华开放中文词库</a></p>
+        </article>
+        <article class="card">
+          <span class="dictionary-status personal">由你维护</span>
+          <h3>个人专名与替换规则</h3>
+          <p class="dictionary-personal">留住你的用语</p>
+          <p>公司名、产品名、人名和新术语单独管理。纠错检索完整个人词库，已正确写出的个人词条继续受保护。</p>
+          <p class="dictionary-source">支持 JSON 导入导出 · 显式替换本地生效</p>
+        </article>
+      </div>
+      <div class="dictionary-details">
+        <p><span>在哪里管理</span>打开“词库 → 公共词库”，可分别开关通用库和 IT 包，保存后从下一次语音生效。</p>
+        <p><span>怎样参与纠错</span>公共词库需要开启 AI 润色或 Jev，结合上下文比较候选和原文；命中词条不会直接强制替换。两者关闭时，显式替换规则仍可使用。</p>
+        <p><span>词库留在本机</span>数据随应用提供，本地检索，不占用个人识别提示名额。开启远端润色或 Jev 时，只发送相关候选与所需上下文，不发送完整公共词库。</p>
+      </div>
+    </section>
+
     <section class="section" id="privacy">
       <div class="panel">
         <h2>你的声音，留在你手里</h2>
@@ -159,7 +194,7 @@
           <li><b>不保存音频</b>音频只在内存中处理，不保存、不回放，也不保留转写历史。</li>
           <li><b>密钥只存钥匙串</b>API key 仅存入 macOS 钥匙串，不写入设置文件或日志；阿里云百炼与支付宝 MaaS 凭据分开保存。</li>
           <li><b>不悄悄上云</b>识别失败时结束本次语音；润色失败时保留识别原文。不会自动切换到云端。</li>
-          <li><b>云端功能透明可控</b>选择在线识别时，音频发送到所选服务；选择远端润色时只发送转写文字与词库；开启 Jev 时发送完整转写、分词和命中的候选词。均不发送音频。</li>
+          <li><b>云端功能透明可控</b>选择在线识别时，音频发送到所选服务；选择远端润色或开启 Jev 时，发送转写文字、相关词库提示与候选等上下文。润色与 Jev 不接收音频，也不接收完整公共词库。</li>
         </ul>
         <a class="btn" href="https://github.com/vfasky/my-ai-audio" rel="noopener">
           <svg viewBox="0 0 24 24"><path d="m8 8-4 4 4 4m8-8 4 4-4 4m-3-10-2 12"/></svg>
@@ -172,9 +207,9 @@
       <div class="panel dl">
         <img src="/img/icon-256.png" alt="" width="96" height="96" class="app-icon">
         <h2>下载 go-voice</h2>
-        <p class="sub"><span data-version>v0.4.0</span> · 需要 macOS 26 或更高版本、Apple 芯片 Mac，免费使用</p>
+        <p class="sub"><span data-version>v0.5.0</span> · 需要 macOS 26 或更高版本、Apple 芯片 Mac，免费使用</p>
         <div class="cta">
-          <a class="btn primary" data-dl="appleSilicon" href="https://github.com/vfasky/my-ai-audio/releases/download/go-voice-v0.4.0/go-voice-0.4.0-macOS-AppleSilicon.dmg">
+          <a class="btn primary" data-dl="appleSilicon" href="https://github.com/vfasky/my-ai-audio/releases/download/go-voice-v0.5.0/go-voice-0.5.0-macOS-AppleSilicon.dmg">
             <svg viewBox="0 0 24 24"><path d="M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg>
             Apple 芯片（M 系列）DMG
           </a>
@@ -182,7 +217,7 @@
         <p class="hint">将 go-voice 拖入“应用程序”，打开后按权限引导授予蓝牙、语音识别和辅助功能，再选择你的 FoloToy AI Passport。</p>
         <p class="hint">还没有硬件？<a href="#buy-hardware">查看 AI Passport 介绍与购买方式 →</a></p>
         <p class="hint">
-          <a data-dl="checksums" href="https://github.com/vfasky/my-ai-audio/releases/download/go-voice-v0.4.0/SHA256SUMS.txt">SHA256 校验文件</a> ·
+          <a data-dl="checksums" href="https://github.com/vfasky/my-ai-audio/releases/download/go-voice-v0.5.0/SHA256SUMS.txt">SHA256 校验文件</a> ·
           <a href="https://github.com/vfasky/my-ai-audio/releases" rel="noopener">全部版本</a> ·
           <a href="https://github.com/vfasky/my-ai-audio/blob/main/gui/README.zh_CN.md" rel="noopener">使用指南</a>
         </p>

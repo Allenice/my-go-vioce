@@ -152,6 +152,19 @@ h2 { font-size: clamp(28px, 4vw, 42px); }
 }
 .ico svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
+/* Public dictionaries */
+#vocabulary h2 { margin-top: 18px; }
+#vocabulary h2 span { display: inline-block; }
+.dictionary-status { display: inline-block; padding: 4px 10px; border-radius: 999px; color: var(--accent); background: var(--accent-soft); font-size: 12px; }
+.dictionary-status.personal { color: var(--ink); background: var(--glass-strong); }
+.card .dictionary-count { margin: 18px 0; color: var(--ink); font-size: clamp(32px, 4vw, 42px); font-weight: 650; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.dictionary-count span { font-size: 14px; font-weight: 400; color: var(--muted); }
+.card .dictionary-personal { margin: 18px 0; color: var(--ink); font-size: 28px; font-weight: 600; line-height: 1.8; }
+.card .dictionary-source { margin-top: 20px; font-size: 12px; }
+.dictionary-details { margin-top: 22px; padding: 8px 24px; border: 1px solid var(--line); border-radius: 22px; text-align: left; background: var(--glass); }
+.dictionary-details p { color: var(--muted); font-size: 14px; }
+.dictionary-details span { display: block; margin-bottom: 5px; color: var(--ink); font-weight: 600; }
+
 /* Panels */
 .panel {
   padding: clamp(28px, 5vw, 56px); border-radius: 40px; text-align: center;

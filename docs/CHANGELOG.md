@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- Prepare `go-voice` 0.5.0 with default-enabled Common and IT public dictionaries and complete personal-vocabulary retrieval. Add a dedicated website vocabulary section with counts, sources, controls and privacy behavior, and refresh the download links and release notes.
+
 - Ship a read-only common-word pack (96,336 Jieba terms) and an IT pack (12,854 THUOCL terms), both enabled by default. Manage them in Vocabulary > Public Dictionaries; changes apply to the next dictation. Precompiled readings load into a cached worker index. Public candidates retain source/frequency evidence without becoming protected personal names; they never consume recognition hints or overwrite personal vocabulary. Bundle pinned-source provenance and MIT attribution. Real model correction quality remains unverified.
 
 - Separate go-voice recognition hints from correction vocabulary: Apple recognition keeps Top 100, while local pinyin retrieval searches all terms and replacement targets. Preserve complete competing candidate sets, correctly spelled names and active-session snapshots; retain the original when context does not support a correction. Add 40 authored regression seeds, an opt-in live evaluation reporting recovered and broken cases separately, and retrieval benchmarks. Live correction quality remains unverified.
