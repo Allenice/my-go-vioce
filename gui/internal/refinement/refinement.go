@@ -1,6 +1,7 @@
 package refinement
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -23,6 +24,19 @@ type Config struct {
 	Model    string `json:"model"`
 	// API selects the OpenAI wire format; empty means "chat" for older settings.
 	API string `json:"api,omitempty"`
+	// Stream asks for the reply as server-sent events, for providers and
+	// models that only answer streamed requests. The text is still used
+	// whole, after the fidelity check.
+	Stream bool `json:"stream,omitempty"`
+	// ProviderOnly, ProviderOrder and ProviderIgnore are lists, separated by
+	// commas or spaces, of provider identifiers for gateways that serve one
+	// model from several providers, such as DTMaaS: they become the
+	// "provider" object (only, order, ignore) of the request. Empty lists
+	// are left out. ProviderStrict forbids providers outside the order.
+	ProviderOnly   string `json:"providerOnly,omitempty"`
+	ProviderOrder  string `json:"providerOrder,omitempty"`
+	ProviderIgnore string `json:"providerIgnore,omitempty"`
+	ProviderStrict bool   `json:"providerStrict,omitempty"`
 }
 
 // OpenAI wire formats for the remote engine.
@@ -122,6 +136,16 @@ const KeepRule = "keep lists heard words that a separate check found to be what 
 // writes for a hesitation sound.
 const FillerRule = "Then remove fillers that carry no meaning: interjections and hesitation sounds such as 喂, 嗯, 啊, 呃, 额, 哦, 诶, 欸 or 哎; words that only fill a pause, such as 那个, 这个, 就是 or 然后 used without meaning; words repeated by a false start; and stray single Latin letters, such as a lone Y or E, that recognition wrote for a hesitation sound. Keep such words where they carry meaning, as in 喂猫, 那个文件 or 然后再说."
 
+// StructuredRule gives structured mode an editor's authority over the
+// wording: beyond fillers and punctuation it fixes what recognition misheard
+// outside the vocabulary, what the speaker took back and sentences that
+// speech left broken, then lays the text out. It still keeps every fact.
+// Recognition errors are mostly real words that sound like the intended
+// ones and that local retrieval often misses, so the rule lets the model
+// judge each word by its sense, and lifts the caution of the vocabulary
+// rules for words that do not fit.
+const StructuredRule = FillerRule + " Then proofread the text as an editor of a speech-recognition transcript. Recognition errors are frequent and usually look like real words: the recognizer writes a common word or name that sounds like what was said, so a heard word being a valid word on its own is no evidence that it is right. Read the complete dictation, work out what the speaker meant from the context and from general knowledge of products, companies, technology and everyday usage, and check whether each word makes sense where it stands. Replace a misrecognized word, such as a homophone, a near-homophone, a wrong character, a similar-sounding name or a garbled English word, whenever a similar-sounding word fits the context clearly better, even when that word is neither in the vocabulary nor among the candidates: candidates are incomplete hints and may be wrong. For example, 把这条消息发到微波上 becomes 把这条消息发到微博上; 这段代码已经调式通过了 becomes 这段代码已经调试通过了; 我们调用知乎的 GLM 接口 becomes 我们调用智谱的 GLM 接口, because 智谱 makes GLM and 知乎 does not. When the speaker takes back what they said, as in 明天，不对，后天, keep only the corrected version; remove repetitions; and fix grammar, word order and sentence breaks that speech left broken, rewording minimally where needed. Then correct punctuation, and split the text into paragraphs, or into a numbered or bulleted list where the speaker enumerates steps or items. Keep every point, fact, number and name, the speaker's intent and their first-person voice: do not summarize, drop content, add facts or headings, or answer the dictation. In this mode the caution above about preserving ordinary words applies only to words that make sense in context; a heard word that does not fit is not protected. Leave correctly spelled vocabulary terms and keep words unchanged, and keep a heard word when it makes sense in context or when no similar-sounding word fits clearly better."
+
 // Prompt asks the model to edit text in mode against the vocabulary terms;
 // keep are heard words it must not replace with a term.
 func Prompt(text string, terms []string, mode string, keep ...string) string {
@@ -146,7 +170,7 @@ func PromptEvidence(text string, evidence Evidence, mode string, keep ...string)
 	rule := map[string]string{
 		"names":      "Correct only names and terms of the personal vocabulary or supplied public candidates. Preserve all other wording and punctuation.",
 		"light":      FillerRule + " Then correct punctuation. Change nothing else: do not rephrase, reorder, summarize, translate or add anything.",
-		"structured": FillerRule + " Then correct punctuation, and add paragraphs or short lists only where the dictated content has them. Do not rephrase, invent headings or add facts.",
+		"structured": StructuredRule,
 	}[mode]
 	if len(terms) > 0 || len(evidence.Public) > 0 {
 		head := VocabularyRule
@@ -176,6 +200,31 @@ func Faithful(original, output string) bool { return FaithfulTo(original, output
 // not as invented text. The replacement is bounded, so an output made of
 // vocabulary terms in place of the dictation is still refused.
 func FaithfulTo(original, output string, terms []string) bool {
+	return faithful(original, output, terms, strict)
+}
+
+// StructuredFaithfulTo is FaithfulTo for structured mode, whose edits also
+// fix misheard words, drop what the speaker took back and smooth broken
+// sentences: it lets the output keep less of the dictation and add more new
+// letters, still refusing a summary, an answer or invented text.
+func StructuredFaithfulTo(original, output string, terms []string) bool {
+	return faithful(original, output, terms, editor)
+}
+
+// A fidelity bounds an edit: the output keeps at least keep of the letters
+// of the dictation and adds at most novelNum/novelDen of their number, or
+// three, as new ones.
+type fidelity struct {
+	keep               float64
+	novelNum, novelDen int
+}
+
+var (
+	strict = fidelity{keep: 0.7, novelNum: 1, novelDen: 3}
+	editor = fidelity{keep: 0.55, novelNum: 2, novelDen: 5}
+)
+
+func faithful(original, output string, terms []string, f fidelity) bool {
 	a, b := strings.ToLower(strings.TrimSpace(original)), strings.ToLower(strings.TrimSpace(output))
 	if a == "" || b == "" {
 		return false
@@ -221,7 +270,7 @@ func FaithfulTo(original, output string, terms []string) bool {
 	if matched+novel == 0 && replaced == 0 {
 		return false
 	}
-	return total > 0 && float64(matched) >= 0.7*float64(total-replaced) && novel <= max(3, total/3)
+	return total > 0 && float64(matched) >= f.keep*float64(total-replaced) && novel <= max(3, total*f.novelNum/f.novelDen)
 }
 
 // fillers are the words of speech that FillerRule may remove, longest
@@ -331,7 +380,11 @@ func RunEvidence(ctx context.Context, c Config, text string, evidence Evidence, 
 		if r.err != nil {
 			return text, "engine unavailable; original retained"
 		}
-		if !FaithfulTo(text, r.text, terms) {
+		check := FaithfulTo
+		if c.Mode == "structured" {
+			check = StructuredFaithfulTo
+		}
+		if !check(text, r.text, terms) {
 			return text, "fidelity fallback"
 		}
 		return strings.TrimSpace(r.text), "refined"
@@ -384,44 +437,131 @@ func remote(ctx context.Context, c Config, prompt string, k Keychain) (string, i
 		if e != nil {
 			return "", 0, e
 		}
-		status, body, e := post(ctx, strings.TrimRight(c.Endpoint, "/")+path, key, b)
+		res, e := send(ctx, strings.TrimRight(c.Endpoint, "/")+path, key, b)
 		if e != nil {
 			return "", 0, e
 		}
 		// 400 and 422 are how providers refuse an unknown parameter.
-		if (status == 400 || status == 422) && level > thinkingDefault {
+		if (res.StatusCode == 400 || res.StatusCode == 422) && level > thinkingDefault {
+			res.Body.Close()
 			level--
 			continue
 		}
-		if status != 200 {
-			return "", 0, &StatusError{status}
+		if res.StatusCode != 200 {
+			res.Body.Close()
+			return "", 0, &StatusError{res.StatusCode}
 		}
 		thinkingLevels.Store(id, level)
-		out, e := reply(c.API, body)
+		var out string
+		// A provider that ignores stream answers with plain JSON.
+		if c.Stream && strings.HasPrefix(res.Header.Get("Content-Type"), "text/event-stream") {
+			out, e = streamReply(c.API, res.Body)
+		} else {
+			var body []byte
+			if body, e = readBody(res.Body); e == nil {
+				out, e = reply(c.API, body)
+			}
+		}
+		res.Body.Close()
 		return out, level, e
 	}
 }
 
-// post sends a request body and returns the status and the reply, at most
-// 64 KiB.
-func post(ctx context.Context, url, key string, body []byte) (int, []byte, error) {
+// send posts a request body; the caller closes the reply body.
+func send(ctx context.Context, url, key string, body []byte) (*http.Response, error) {
 	req, e := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
 	if e != nil {
-		return 0, nil, e
+		return nil, e
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+key)
 	client := &http.Client{Transport: transport, Timeout: 30 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return errors.New("redirect refused") }}
-	res, e := client.Do(req)
-	if e != nil {
-		return 0, nil, e
+	return client.Do(req)
+}
+
+// maxReply is the longest edited text accepted, in bytes.
+const maxReply = 64 * 1024
+
+// readBody reads a reply of at most maxReply bytes.
+func readBody(r io.Reader) ([]byte, error) {
+	b, e := io.ReadAll(io.LimitReader(r, maxReply+1))
+	if e != nil || len(b) > maxReply {
+		return nil, ErrResponse
 	}
-	defer res.Body.Close()
-	b, e := io.ReadAll(io.LimitReader(res.Body, 64*1024+1))
-	if res.StatusCode == 200 && (e != nil || len(b) > 64*1024) {
-		return 0, nil, ErrResponse
+	return b, nil
+}
+
+// streamReply collects the text of a server-sent event stream of the
+// Chat Completions or Responses API, and fails on an error event or a
+// stream that ends before its last event.
+func streamReply(api string, r io.Reader) (string, error) {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	var out strings.Builder
+	finished := false
+	for sc.Scan() && !finished {
+		data, ok := strings.CutPrefix(sc.Text(), "data:")
+		if !ok {
+			continue
+		}
+		data = strings.TrimSpace(data)
+		if data == "" {
+			continue
+		}
+		if data == "[DONE]" {
+			finished = true
+			break
+		}
+		if api == APIResponses {
+			var ev struct {
+				Type  string
+				Delta string
+			}
+			if json.Unmarshal([]byte(data), &ev) != nil {
+				return "", ErrResponse
+			}
+			switch ev.Type {
+			case "response.output_text.delta":
+				out.WriteString(ev.Delta)
+			case "response.completed":
+				finished = true
+			case "response.failed", "response.incomplete", "error":
+				return "", ErrResponse
+			}
+		} else {
+			var ev struct {
+				Error   json.RawMessage
+				Choices []struct {
+					Index int
+					Delta struct{ Content string }
+					// Reasons are strings; a pointer tells null from none.
+					FinishReason *string `json:"finish_reason"`
+				}
+			}
+			if json.Unmarshal([]byte(data), &ev) != nil || len(ev.Error) > 0 && string(ev.Error) != "null" || len(ev.Choices) > 1 {
+				return "", ErrResponse
+			}
+			for _, ch := range ev.Choices {
+				if ch.Index != 0 {
+					return "", ErrResponse
+				}
+				out.WriteString(ch.Delta.Content)
+				if ch.FinishReason != nil && *ch.FinishReason != "" {
+					finished = true
+				}
+			}
+		}
+		if out.Len() > maxReply {
+			return "", ErrResponse
+		}
 	}
-	return res.StatusCode, b, nil
+	if sc.Err() != nil || !finished {
+		return "", ErrResponse
+	}
+	if text := strings.TrimSpace(stripThinking(out.String())); text != "" {
+		return text, nil
+	}
+	return "", ErrResponse
 }
 
 // request builds the OpenAI request path and body for the configured API,
@@ -446,6 +586,12 @@ func request(c Config, prompt string, thinking int) (string, []byte, error) {
 	default:
 		return "", nil, errors.New("invalid api")
 	}
+	if c.Stream {
+		body["stream"] = true
+	}
+	if p := c.providerRouting(); p != nil {
+		body["provider"] = p
+	}
 	if thinking >= thinkingAll {
 		body["thinking"] = map[string]string{"type": "disabled"}
 		body["enable_thinking"] = false
@@ -453,6 +599,25 @@ func request(c Config, prompt string, thinking int) (string, []byte, error) {
 	}
 	b, e := json.Marshal(body)
 	return path, b, e
+}
+
+// providerRouting is the "provider" object of the request, or nil when no
+// list is set: only, order and ignore as given, and allow_fallbacks false
+// when ProviderStrict.
+func (c Config) providerRouting() map[string]any {
+	p := map[string]any{}
+	for name, list := range map[string]string{"only": c.ProviderOnly, "order": c.ProviderOrder, "ignore": c.ProviderIgnore} {
+		if ids := strings.FieldsFunc(list, func(r rune) bool { return r == ',' || r == '，' || r == ';' || unicode.IsSpace(r) }); len(ids) > 0 {
+			p[name] = ids
+		}
+	}
+	if len(p) == 0 {
+		return nil
+	}
+	if c.ProviderStrict {
+		p["allow_fallbacks"] = false
+	}
+	return p
 }
 
 // stripThinking removes the reasoning that some models write into the

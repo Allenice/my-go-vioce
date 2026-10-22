@@ -125,6 +125,29 @@ func (Store) Get(ctx context.Context, account string) (string, error) {
 	}
 	return string(unsafe.Slice((*byte)(native.dataBytes(result)), n)), nil
 }
+
+// Has reports whether account holds a credential, without reading it, so
+// that settings can show a saved key without asking for keychain access.
+func (Store) Has(ctx context.Context, account string) (bool, error) {
+	q, e := query(ctx, account)
+	if e != nil {
+		return false, e
+	}
+	defer native.release(q)
+	native.set(q, native.keys["kSecMatchLimit"], native.keys["kSecMatchLimitOne"])
+	var result uintptr
+	status := native.copyMatching(q, &result)
+	if result != 0 {
+		native.release(result)
+	}
+	switch status {
+	case 0:
+		return true, nil
+	case -25300:
+		return false, nil
+	}
+	return false, errors.New("Keychain read unavailable")
+}
 func (Store) Set(ctx context.Context, account, value string) error {
 	if len(value) == 0 || len(value) > 4096 || strings.ContainsRune(value, 0) {
 		return errors.New("invalid credential")

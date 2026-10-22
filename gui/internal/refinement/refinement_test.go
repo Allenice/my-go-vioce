@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -402,6 +403,68 @@ func TestFidelityAllowsRemovedFillers(t *testing.T) {
 	}
 }
 
+func TestPromptLetsStructuredModeEditWording(t *testing.T) {
+	p := Prompt("我们明天，不对，后天去上海开会", []string{"伊智"}, "structured")
+	if !strings.Contains(p, StructuredRule) || strings.Index(p, VocabularyRule) > strings.Index(p, StructuredRule) {
+		t.Fatalf("structured: %s", p)
+	}
+	// Misheard real words outside the candidates may be corrected, and the
+	// caution of the vocabulary rules gives way for words that do not fit.
+	for _, want := range []string{"no evidence that it is right", "neither in the vocabulary nor among the candidates", "a heard word that does not fit is not protected"} {
+		if !strings.Contains(StructuredRule, want) {
+			t.Fatalf("structured rule lacks %q", want)
+		}
+	}
+	for _, mode := range []string{"names", "light"} {
+		if strings.Contains(Prompt("我们明天，不对，后天去上海开会", nil, mode), "proofread") {
+			t.Fatalf("%s mode rewords", mode)
+		}
+	}
+}
+
+func TestStructuredFidelityAllowsEditorCorrections(t *testing.T) {
+	for _, c := range []struct {
+		original, output string
+		want, strict     bool
+	}{
+		// What the speaker took back.
+		{"我们明天，不对，后天去上海开会", "我们后天去上海开会。", true, false},
+		// Misheard words outside the vocabulary, Latin terms included.
+		{"我想问一下那个吉他的仓库里面有没有配制好的西爱流水线", "我想问一下 GitHub 的仓库里面有没有配置好的 CI 流水线？", true, false},
+		{"增加豆瓣语音识别的介入。", "增加豆包语音识别的接入。", true, true},
+		{"这个交户逻辑有点问题我觉得应该先登路再跳转到首页然后在弹出提示", "这个交互逻辑有点问题。我觉得应该先登录，再跳转到首页，然后再弹出提示。", true, true},
+		// A list in place of spoken ordinals.
+		{"今天要做三件事第一是修复登录的bug第二是更新文档第三是发版", "今天要做三件事：\n1. 修复登录的 bug\n2. 更新文档\n3. 发版", true, true},
+		// A summary, an answer or invented facts stay refused.
+		{"喂今天下午三点在会议室讨论发布计划", "今天开会", false, false},
+		{"今天下午三点我们在会议室讨论发布计划，大家都同意下周一上线，然后由小王负责准备文档", "下周一上线，小王负责文档。", false, false},
+		{"请帮我整理今天的会议记录", "我是助手，我会替你完成所有任务", false, false},
+		{"帮我写一首关于春天的诗", "春风拂面花自开，燕子归来柳色新。", false, false},
+		{"明天开会", "明天上午十点在三楼会议室召开项目进度评审会议", false, false},
+	} {
+		if got := StructuredFaithfulTo(c.original, c.output, nil); got != c.want {
+			t.Errorf("structured %q -> %q: %v, want %v", c.original, c.output, got, c.want)
+		}
+		if got := FaithfulTo(c.original, c.output, nil); got != c.strict {
+			t.Errorf("strict %q -> %q: %v, want %v", c.original, c.output, got, c.strict)
+		}
+	}
+}
+
+func TestRunChecksFidelityByMode(t *testing.T) {
+	original := "我们明天，不对，后天去上海开会"
+	local := func(context.Context, string) (string, error) { return "我们后天去上海开会。", nil }
+	c := Default()
+	c.Mode = "structured"
+	if out, status := Run(context.Background(), c, original, nil, &memoryKeys{}, local); out != "我们后天去上海开会。" || status != "refined" {
+		t.Fatal("structured", out, status)
+	}
+	c.Mode = "light"
+	if out, status := Run(context.Background(), c, original, nil, &memoryKeys{}, local); out != original || status != "fidelity fallback" {
+		t.Fatal("light", out, status)
+	}
+}
+
 func TestPromptKeepsWhatJevKept(t *testing.T) {
 	p := Prompt("大家意见很一致", []string{"伊智"}, "light", "一致")
 	if !strings.Contains(p, KeepRule) || !strings.Contains(p, `"keep":["一致"]`) || strings.Contains(p, `"candidates"`) {
@@ -419,5 +482,116 @@ func TestSpansFindEveryPlace(t *testing.T) {
 	}
 	if c := Candidates("一致科技和一致", []string{"伊智"}); len(c) != 1 {
 		t.Fatalf("candidates %+v", c)
+	}
+}
+
+// A gateway that serves one model from several providers takes the choice
+// as a top-level "provider" object; empty lists leave it out.
+func TestRequestCarriesProviderRouting(t *testing.T) {
+	for _, api := range []string{APIChat, APIResponses} {
+		c := Config{Model: "m", API: api}
+		if _, b, _ := request(c, "p", thinkingDefault); strings.Contains(string(b), "provider") {
+			t.Fatalf("%s: routing sent unasked: %s", api, b)
+		}
+		c.ProviderOnly, c.ProviderOrder, c.ProviderIgnore, c.ProviderStrict = " a, b ", "b，a;", "c", false
+		_, b, _ := request(c, "p", thinkingDefault)
+		var body struct{ Provider map[string]any }
+		if json.Unmarshal(b, &body) != nil || fmt.Sprint(body.Provider) != "map[ignore:[c] only:[a b] order:[b a]]" {
+			t.Fatalf("%s: provider %s", api, b)
+		}
+		c.ProviderStrict = true
+		_, b, _ = request(c, "p", thinkingDefault)
+		if !strings.Contains(string(b), `"allow_fallbacks":false`) {
+			t.Fatalf("%s: strict %s", api, b)
+		}
+	}
+}
+
+func eventStream(w http.ResponseWriter, lines ...string) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	for _, l := range lines {
+		_, _ = io.WriteString(w, l+"\n\n")
+	}
+}
+
+func TestStreamedChatReply(t *testing.T) {
+	var body string
+	endpoint := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		body = string(b)
+		eventStream(w,
+			`data: {"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}`,
+			`: keep-alive`,
+			`data: {"choices":[{"index":0,"delta":{"reasoning_content":"想一想"},"finish_reason":null}]}`,
+			`data: {"choices":[{"index":0,"delta":{"content":"今天"}}]}`,
+			`data: {"choices":[{"index":0,"delta":{"content":"开会。"},"finish_reason":"stop"}]}`,
+			`data: {"choices":[],"usage":{"total_tokens":9}}`,
+			`data: [DONE]`)
+	})
+	res, err := Test(context.Background(), Config{Endpoint: endpoint, Model: "m", API: APIChat, Stream: true}, "k", nil)
+	if err != nil || res.Text != "今天开会。" || !strings.Contains(body, `"stream":true`) {
+		t.Fatalf("stream: %+v %v %s", res, err, body)
+	}
+}
+
+func TestStreamedResponsesReply(t *testing.T) {
+	endpoint := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		eventStream(w,
+			"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"status\":\"in_progress\"}}",
+			"event: response.reasoning_summary_text.delta\ndata: {\"type\":\"response.reasoning_summary_text.delta\",\"delta\":\"想\"}",
+			"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"今天\"}",
+			"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"开会。\"}",
+			"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}")
+	})
+	res, err := Test(context.Background(), Config{Endpoint: endpoint, Model: "m", API: APIResponses, Stream: true}, "k", nil)
+	if err != nil || res.Text != "今天开会。" {
+		t.Fatalf("stream: %+v %v", res, err)
+	}
+}
+
+// A stream that fails, or stops before its last event, is no reply: half a
+// text must not be inserted.
+func TestStreamedReplyMustFinish(t *testing.T) {
+	for name, lines := range map[string][]string{
+		"cut off":     {`data: {"choices":[{"index":0,"delta":{"content":"今天"}}]}`},
+		"error event": {`data: {"choices":[{"index":0,"delta":{"content":"今天"}}]}`, `data: {"error":{"message":"overloaded"}}`},
+		"empty":       {`data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`, `data: [DONE]`},
+		"second":      {`data: {"choices":[{"index":1,"delta":{"content":"今"}}]}`, `data: [DONE]`},
+	} {
+		endpoint := testServer(t, func(w http.ResponseWriter, r *http.Request) { eventStream(w, lines...) })
+		if _, err := Test(context.Background(), Config{Endpoint: endpoint, Model: "m", Stream: true}, "k", nil); !errors.Is(err, ErrResponse) {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	for name, lines := range map[string][]string{
+		"cut off": {`data: {"type":"response.output_text.delta","delta":"今天"}`},
+		"failed":  {`data: {"type":"response.output_text.delta","delta":"今天"}`, `data: {"type":"response.failed"}`},
+	} {
+		endpoint := testServer(t, func(w http.ResponseWriter, r *http.Request) { eventStream(w, lines...) })
+		if _, err := Test(context.Background(), Config{Endpoint: endpoint, Model: "m", API: APIResponses, Stream: true}, "k", nil); !errors.Is(err, ErrResponse) {
+			t.Fatalf("responses %s: %v", name, err)
+		}
+	}
+}
+
+// A provider that ignores stream and answers with JSON still works, and a
+// stream much longer than the text it carries is not cut at 64 KiB.
+func TestStreamingToleratesPlainJSONAndLongStreams(t *testing.T) {
+	endpoint := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"好"}}]}`))
+	})
+	if res, err := Test(context.Background(), Config{Endpoint: endpoint, Model: "m", Stream: true}, "k", nil); err != nil || res.Text != "好" {
+		t.Fatalf("json: %+v %v", res, err)
+	}
+	endpoint = testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		var lines []string
+		for i := 0; i < 2000; i++ {
+			lines = append(lines, `data: {"id":"chatcmpl-0123456789","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"content":"字"}}]}`)
+		}
+		eventStream(w, append(lines, `data: [DONE]`)...)
+	})
+	res, err := Test(context.Background(), Config{Endpoint: endpoint, Model: "m", Stream: true}, "k", nil)
+	if err != nil || len([]rune(res.Text)) != 2000 {
+		t.Fatalf("long: %d %v", len([]rune(res.Text)), err)
 	}
 }

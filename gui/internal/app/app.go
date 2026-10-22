@@ -434,6 +434,7 @@ func (a *application) initialize() {
 		ConfigureASR:     a.configureASR,
 		TestASR:          a.testASR,
 		DeleteASRKey:     a.deleteASRKey,
+		CheckKey:         a.checkKey,
 		ConfigureJev:     a.configureJev,
 		TestJev:          a.testJev,
 		DeleteJevKey:     a.deleteJevKey,
@@ -449,6 +450,9 @@ func (a *application) initialize() {
 			go func() {
 				e := (keychain.Store{}).Set(ctxOrBackground(a.ctx), c.Endpoint, key)
 				a.post(func() {
+					if e == nil {
+						a.noteKey(c.Endpoint, true)
+					}
 					msg, ok := settingsMessage(c, nil, true, e)
 					a.setFeedback(c, msg, ok)
 				})
@@ -467,6 +471,7 @@ func (a *application) initialize() {
 					if e != nil {
 						a.setFeedback(c, "API key 存入钥匙串失败，请重试或检查钥匙串访问权限。", false)
 					} else {
+						a.noteKey(endpoint, true)
 						a.setFeedback(c, "API key 已存入钥匙串。", true)
 					}
 				})
@@ -500,6 +505,7 @@ func (a *application) initialize() {
 					if e != nil {
 						a.setFeedback(c, "没有删除：钥匙串中没有此端点的 API key，或无法访问钥匙串。", false)
 					} else {
+						a.noteKey(endpoint, false)
 						a.setFeedback(c, "已从钥匙串删除此端点的 API key。", true)
 					}
 				})
@@ -1433,10 +1439,38 @@ func (a *application) configureASR(c asr.Config, key string) {
 			_, err = (keychain.Store{}).Get(ctx, asr.KeyAccount(c))
 		}
 		a.post(func() {
+			// A failed write tells nothing about a key saved before.
+			if key == "" || err == nil {
+				a.noteKey(asr.KeyAccount(c), err == nil)
+			}
 			msg, ok := asrSettingsMessage(c, key != "", err)
 			a.setASRFeedback(c, msg, ok)
 		})
 	}()
+}
+
+// checkKey looks up whether the keychain holds a key for account, without
+// reading it, so that a page can say a key is saved instead of showing an
+// empty field as if it had to be typed again.
+func (a *application) checkKey(account string) {
+	go func() {
+		saved, err := (keychain.Store{}).Has(ctxOrBackground(a.ctx), account)
+		a.post(func() {
+			if err == nil {
+				a.noteKey(account, saved)
+			}
+		})
+	}()
+}
+
+// noteKey records whether account holds a key, for the pages to show.
+func (a *application) noteKey(account string, saved bool) {
+	s := &a.view.Snapshot
+	if s.SavedKeys == nil {
+		s.SavedKeys = map[string]bool{}
+	}
+	s.SavedKeys[account] = saved
+	a.mark(paintView)
 }
 
 // asrSettingsMessage tells how saving the engine c ended: with a typed key
@@ -1507,6 +1541,7 @@ func (a *application) deleteASRKey() {
 			if err != nil {
 				a.setASRFeedback(c, "删除失败：无法访问钥匙串。", false)
 			} else {
+				a.noteKey(asr.KeyAccount(c), false)
 				a.setASRFeedback(c, "已从钥匙串删除"+c.Provider()+" 的 API key。", true)
 			}
 		})
@@ -1583,6 +1618,9 @@ func (a *application) configureJev(c jev.Config, key string) {
 			_, err = (keychain.Store{}).Get(ctx, jev.KeyAccount(c))
 		}
 		a.post(func() {
+			if key == "" || err == nil {
+				a.noteKey(jev.KeyAccount(c), err == nil)
+			}
 			msg, ok := jevSettingsMessage(c, key != "", err)
 			a.setJevFeedback(c, msg, ok)
 		})
@@ -1669,6 +1707,7 @@ func (a *application) deleteJevKey() {
 			if err != nil {
 				a.setJevFeedback(draft, "删除失败：无法访问钥匙串。", false)
 			} else {
+				a.noteKey(jev.KeyAccount(c), false)
 				a.setJevFeedback(draft, "已从钥匙串删除 "+c.Host()+" 的 API key。", true)
 			}
 		})

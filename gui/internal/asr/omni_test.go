@@ -288,8 +288,15 @@ func TestCloseInterruptsBlockedWebSocketWrite(t *testing.T) {
 
 func TestOmniConfigAndCredentialIsolation(t *testing.T) {
 	c := Normalize(Config{Engine: EngineOmni})
-	if c.Validate() != nil || !c.Online() || !c.Streaming() || ChoiceOf(c).ID != "aliyun-omni" {
+	if c.Model != "qwen3.8-omni-flash-realtime" || !c.Online() || !c.Streaming() || ChoiceOf(c).ID != "aliyun-omni" {
 		t.Fatalf("default Omni config: %+v", c)
+	}
+	if !errors.Is(c.Validate(), ErrWorkspace) || !strings.Contains(Message(ErrWorkspace), "工作空间 ID") {
+		t.Fatalf("an Omni config needs a workspace: %v", c.Validate())
+	}
+	c.Endpoint = OmniEndpoint("ws-1", "cn-beijing")
+	if c.Validate() != nil || c.Host() != "ws-1.cn-beijing.maas.aliyuncs.com" {
+		t.Fatalf("workspace config: %+v", c)
 	}
 	if KeyAccount(c) == KeyAccount(fun) || KeyAccount(fun) != "asr:alipay-maas" {
 		t.Fatal("providers must not share credentials")
@@ -304,6 +311,31 @@ func TestOmniConfigAndCredentialIsolation(t *testing.T) {
 		bad.Endpoint = endpoint
 		if !errors.Is(bad.Validate(), ErrEndpoint) {
 			t.Errorf("accepted unsafe endpoint %q", endpoint)
+		}
+	}
+}
+
+func TestOmniEndpointRoundTrip(t *testing.T) {
+	for _, r := range OmniRegions {
+		e := OmniEndpoint("my-ws1", r.ID)
+		if e != "wss://my-ws1."+r.ID+".maas.aliyuncs.com/api-ws/v1/realtime" {
+			t.Fatalf("endpoint %q", e)
+		}
+		if ws, region, ok := ParseOmniEndpoint(" " + e + " "); !ok || ws != "my-ws1" || region != r.ID {
+			t.Fatalf("parse %q: %q %q %v", e, ws, region, ok)
+		}
+	}
+	for _, id := range []string{"", "-a", "a-", "a.b", "a/b", "a b", "工作", strings.Repeat("a", 64)} {
+		if ValidWorkspace(id) || OmniEndpoint(id, "cn-beijing") != "" {
+			t.Errorf("accepted workspace %q", id)
+		}
+	}
+	if OmniEndpoint("ws", "eu-west-1") != "" {
+		t.Error("accepted unknown region")
+	}
+	for _, e := range []string{"", "wss://example.com/api-ws/v1/realtime", "wss://dashscope.aliyuncs.com/api-ws/v1/realtime", "wss://a.b.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime", "wss://ws.cn-beijing.maas.aliyuncs.com/other"} {
+		if _, _, ok := ParseOmniEndpoint(e); ok {
+			t.Errorf("parsed %q", e)
 		}
 	}
 }

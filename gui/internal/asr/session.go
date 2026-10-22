@@ -144,11 +144,14 @@ func (s *Session) recognize() (string, error) {
 	if c.Engine == EngineOmni {
 		return s.recognizeOmni(key, timer)
 	}
+	if c.Engine == EngineDoubao {
+		return s.recognizeDoubao(key, timer)
+	}
 	if !c.Streaming() {
 		timer.Stop()
 		return s.recognizeWhole(key)
 	}
-	ws, err := dial(s.ctx, endpoint+"?model="+url.QueryEscape(c.Model), key)
+	ws, err := dial(s.ctx, endpoint+"?model="+url.QueryEscape(c.Model), bearer(key))
 	if err != nil {
 		return "", err
 	}

@@ -11,15 +11,69 @@ import (
 	"time"
 )
 
-// Engines: Apple SpeechAnalyzer, Alipay MaaS, or Alibaba Cloud Omni Realtime.
+// Engines: Apple SpeechAnalyzer, Alipay MaaS, Alibaba Cloud Omni Realtime, or
+// Volcengine Doubao.
 const (
 	EngineLocal  = "local"
 	EngineAlipay = "alipay"
 	EngineOmni   = "aliyun-omni"
+	EngineDoubao = "doubao"
 )
 
-const DefaultOmniEndpoint = "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
-const defaultOmniModel = "qwen3-omni-flash-realtime"
+const defaultOmniModel = "qwen3.8-omni-flash-realtime"
+
+// OmniRegion is a region of Alibaba Cloud Model Studio; each workspace
+// has one WebSocket host per region.
+type OmniRegion struct{ ID, Label string }
+
+// OmniRegions are the regions the settings offer, Beijing first.
+var OmniRegions = []OmniRegion{
+	{"cn-beijing", "华北2（北京）"},
+	{"ap-southeast-1", "新加坡"},
+}
+
+// ValidWorkspace reports whether id can be a host label: letters, digits and
+// hyphens, not starting or ending with a hyphen.
+func ValidWorkspace(id string) bool {
+	if id == "" || len(id) > 63 || id[0] == '-' || id[len(id)-1] == '-' {
+		return false
+	}
+	for _, r := range id {
+		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+const omniSuffix = ".maas.aliyuncs.com/api-ws/v1/realtime"
+
+// OmniEndpoint is the realtime socket of a workspace in a region, or "" for
+// an invalid workspace ID or an unknown region.
+func OmniEndpoint(workspace, region string) string {
+	if !ValidWorkspace(workspace) {
+		return ""
+	}
+	for _, r := range OmniRegions {
+		if r.ID == region {
+			return "wss://" + workspace + "." + region + omniSuffix
+		}
+	}
+	return ""
+}
+
+// ParseOmniEndpoint splits an endpoint made by OmniEndpoint; ok is false for
+// any other address.
+func ParseOmniEndpoint(endpoint string) (workspace, region string, ok bool) {
+	for _, r := range OmniRegions {
+		if rest, found := strings.CutPrefix(strings.TrimSpace(endpoint), "wss://"); found {
+			if ws, found := strings.CutSuffix(rest, "."+r.ID+omniSuffix); found && OmniEndpoint(ws, r.ID) != "" {
+				return ws, r.ID, true
+			}
+		}
+	}
+	return "", "", false
+}
 
 // Config is the recognition engine of the settings; the zero value is the
 // local engine.
@@ -30,12 +84,14 @@ type Config struct {
 }
 
 // Online reports whether c sends audio to an online engine.
-func (c Config) Online() bool { return c.Engine == EngineAlipay || c.Engine == EngineOmni }
+func (c Config) Online() bool {
+	return c.Engine == EngineAlipay || c.Engine == EngineOmni || c.Engine == EngineDoubao
+}
 
 // Streaming reports whether c recognizes the audio while it arrives; the
 // other online models recognize the whole recording once it ends.
 func (c Config) Streaming() bool {
-	return c.Engine == EngineOmni || (c.Engine == EngineAlipay && c.Model != modelFlash)
+	return c.Engine == EngineOmni || c.Engine == EngineDoubao || (c.Engine == EngineAlipay && c.Model != modelFlash)
 }
 
 // modelFlash recognizes a whole recording in one HTTP request.
@@ -54,6 +110,8 @@ var Choices = []Choice{
 	{"alipay/paraformer-realtime-v2", "支付宝 MaaS · Paraformer 实时 v2", Config{Engine: EngineAlipay, Model: "paraformer-realtime-v2"}},
 	{"alipay/" + modelFlash, "支付宝 MaaS · Qwen3-ASR-Flash（非流式）", Config{Engine: EngineAlipay, Model: modelFlash}},
 	{"aliyun-omni", "阿里云百炼 · Omni Realtime（WebSocket）", Config{Engine: EngineOmni, Model: defaultOmniModel}},
+	{"doubao/" + doubaoSeedDuration, "豆包 · 流式语音识别 2.0（小时版）", Config{Engine: EngineDoubao, Model: doubaoSeedDuration}},
+	{"doubao/" + doubaoSeedConcurrent, "豆包 · 流式语音识别 2.0（并发版）", Config{Engine: EngineDoubao, Model: doubaoSeedConcurrent}},
 }
 
 // Normalize fills Omni defaults and maps unknown preset engines/models to
@@ -61,9 +119,6 @@ var Choices = []Choice{
 func Normalize(c Config) Config {
 	if c.Engine == EngineOmni {
 		c.Endpoint, c.Model = strings.TrimSpace(c.Endpoint), strings.TrimSpace(c.Model)
-		if c.Endpoint == DefaultOmniEndpoint {
-			c.Endpoint = ""
-		}
 		if c.Model == "" {
 			c.Model = defaultOmniModel
 		}
@@ -92,25 +147,27 @@ func ChoiceOf(c Config) Choice {
 // KeyAccount separates providers and custom Omni endpoints. Existing Alipay
 // credentials keep their original account.
 func KeyAccount(c Config) string {
-	if c.Engine == EngineOmni {
+	switch c.Engine {
+	case EngineOmni:
 		return "asr:aliyun-omni:" + c.ServerURL()
+	case EngineDoubao:
+		return "asr:doubao"
 	}
 	return "asr:alipay-maas"
 }
 
 func (c Config) Provider() string {
-	if c.Engine == EngineOmni {
+	switch c.Engine {
+	case EngineOmni:
 		return "阿里云百炼"
+	case EngineDoubao:
+		return "火山引擎豆包"
 	}
 	return "支付宝 MaaS"
 }
 
-func (c Config) ServerURL() string {
-	if strings.TrimSpace(c.Endpoint) == "" {
-		return DefaultOmniEndpoint
-	}
-	return strings.TrimSpace(c.Endpoint)
-}
+// ServerURL is the Omni WebSocket address, empty until a workspace is set.
+func (c Config) ServerURL() string { return strings.TrimSpace(c.Endpoint) }
 
 func (c Config) Host() string {
 	if c.Engine == EngineOmni {
@@ -119,6 +176,9 @@ func (c Config) Host() string {
 			return u.Host
 		}
 		return ""
+	}
+	if c.Engine == EngineDoubao {
+		return DoubaoHost
 	}
 	return Host
 }
@@ -130,6 +190,9 @@ func (c Config) Validate() error {
 		return ErrConfig
 	}
 	if c.Engine == EngineOmni {
+		if c.ServerURL() == "" {
+			return ErrWorkspace
+		}
 		u, err := url.Parse(c.ServerURL())
 		if err != nil || u.Scheme != "wss" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" || len(c.ServerURL()) > 1024 {
 			return ErrEndpoint
@@ -154,14 +217,15 @@ var (
 
 // StartTimeout bounds connecting and the task start: the coordinator buffers
 // the audio meanwhile.
-const StartTimeout = 4 * time.Second
+var StartTimeout = 4 * time.Second
 
 // Why a session failed, for Message to explain.
 var (
-	ErrKey      = errors.New("asr: key unavailable")
-	ErrConfig   = errors.New("asr: invalid engine or model")
-	ErrEndpoint = errors.New("asr: invalid WebSocket endpoint")
-	ErrProtocol = errors.New("asr: invalid reply")
+	ErrKey       = errors.New("asr: key unavailable")
+	ErrConfig    = errors.New("asr: invalid engine or model")
+	ErrEndpoint  = errors.New("asr: invalid WebSocket endpoint")
+	ErrWorkspace = errors.New("asr: workspace missing")
+	ErrProtocol  = errors.New("asr: invalid reply")
 )
 
 // StatusError is a refused WebSocket upgrade or HTTP request.
@@ -183,6 +247,8 @@ func Message(err error) string {
 	var status *StatusError
 	var task *TaskError
 	switch {
+	case errors.Is(err, ErrWorkspace):
+		return "阿里云百炼需要工作空间：请在“语音识别”页选择地域并填写有效的工作空间 ID（字母、数字和连字符）。"
 	case errors.Is(err, ErrEndpoint):
 		return "WebSocket 端点必须是 wss:// 地址，不能包含凭据、查询参数或片段；模型名请单独填写。"
 	case errors.Is(err, ErrConfig):

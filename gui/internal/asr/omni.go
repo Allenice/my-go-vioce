@@ -50,7 +50,7 @@ func (s *Session) recognizeOmni(key string, start *time.Timer) (string, error) {
 	q := u.Query()
 	q.Set("model", c.Model)
 	u.RawQuery = q.Encode()
-	ws, err := dial(s.ctx, u.String(), key)
+	ws, err := dial(s.ctx, u.String(), bearer(key))
 	if err != nil {
 		return "", err
 	}

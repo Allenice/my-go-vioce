@@ -17,6 +17,15 @@ var jevPresets = []struct {
 	{"jev-maas", "支付宝 MaaS", jev.Config{Endpoint: "https://maas-api.antdigital.com/v1/systemone", Model: "jev-1.13"}},
 }
 
+// jevAccount is the keychain account of the key of c's endpoint, or ""
+// while that endpoint cannot be saved.
+func jevAccount(c jev.Config) string {
+	if _, err := jev.Normalize(c).URL(); err != nil {
+		return ""
+	}
+	return jev.KeyAccount(c)
+}
+
 // judge is the Jev tab of the vocabulary page: Jev decides, with a
 // probability, whether a span that sounds like a term is the term. It
 // runs at TypeSafe or at any provider of its System One API.
@@ -49,7 +58,7 @@ func (v *View) judge(c *ui.Context) {
 			ui.TextInput(c, &v.Jev.Model).Placeholder(jev.DefaultModel).Grow(1).Label("Jev 模型")
 		})
 		field(c, "API key", func() {
-			ui.TextInput(c, &v.jevSecret).Password().Placeholder("按接口地址分别保存到 macOS 钥匙串").Grow(1).Label("Jev API key")
+			ui.TextInput(c, &v.jevSecret).Password().Placeholder(v.keyPlaceholder(jevAccount(v.Jev), "按接口地址分别保存到 macOS 钥匙串")).Grow(1).Label("Jev API key")
 		})
 	})
 	if v.Jev.Enabled {

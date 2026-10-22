@@ -44,8 +44,11 @@ type conn struct {
 	closed sync.Once
 }
 
-// dial upgrades a GET of url, authorized by key, to a WebSocket.
-func dial(ctx context.Context, url, key string) (*conn, error) {
+// bearer authorizes a request with an OAuth-style bearer token.
+func bearer(key string) http.Header { return http.Header{"Authorization": {"Bearer " + key}} }
+
+// dial upgrades a GET of url, carrying the auth headers, to a WebSocket.
+func dial(ctx context.Context, url string, auth http.Header) (*conn, error) {
 	url = strings.Replace(strings.Replace(url, "wss://", "https://", 1), "ws://", "http://", 1)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -54,7 +57,9 @@ func dial(ctx context.Context, url, key string) (*conn, error) {
 	var nonce [16]byte
 	_, _ = rand.Read(nonce[:])
 	challenge := base64.StdEncoding.EncodeToString(nonce[:])
-	req.Header.Set("Authorization", "Bearer "+key)
+	for k, v := range auth {
+		req.Header[k] = v
+	}
 	req.Header.Set("Connection", "Upgrade")
 	req.Header.Set("Upgrade", "websocket")
 	req.Header.Set("Sec-WebSocket-Version", "13")

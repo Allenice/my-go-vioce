@@ -26,4 +26,15 @@ func TestRejectInvalidBeforeCallingKeychain(t *testing.T) {
 	if e := (Store{}).Set(context.Background(), "account", ""); e == nil {
 		t.Fatal("empty credential")
 	}
+	if _, e := (Store{}).Has(ctx, "account"); e == nil {
+		t.Fatal("cancelled lookup")
+	}
+}
+
+// Has looks an item up without reading it; an account nobody saved is
+// simply absent.
+func TestHasReportsMissingAccount(t *testing.T) {
+	if ok, e := (Store{}).Has(context.Background(), "https://unit-test.invalid/missing"); ok || e != nil {
+		t.Fatal(ok, e)
+	}
 }

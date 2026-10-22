@@ -3,6 +3,7 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/egoist/mygo/plugins/glass"
@@ -54,6 +55,9 @@ type Snapshot struct {
 	ASRFeedback    string
 	ASRFeedbackOK  bool
 	ASRFeedbackFor asr.Config
+	// SavedKeys tells, per keychain account, whether an API key is saved
+	// there; an account it lacks has not been looked up yet.
+	SavedKeys map[string]bool
 	// OpenAtLogin is whether the system starts go-voice at login.
 	// LoginApproval: the login item waits for the user to allow it in
 	// System Settings. LoginFeedback is how the last change ended.
@@ -102,6 +106,9 @@ type Actions struct {
 	ConfigureASR func(asr.Config, string)
 	TestASR      func(asr.Config, string)
 	DeleteASRKey func()
+	// CheckKey looks up, without reading it, whether the keychain holds a
+	// key for an account, and records the answer in Snapshot.SavedKeys.
+	CheckKey func(account string)
 	// SetOpenAtLogin adds go-voice to the login items, or removes it;
 	// OpenLoginItems opens them in System Settings.
 	SetOpenAtLogin func(bool)
@@ -130,6 +137,18 @@ type View struct {
 	// typed API key.
 	ASR       asr.Config
 	asrSecret string
+	// asrSecrets and asrDrafts keep the key typed and the engine drafted
+	// for each provider left in the drop-down, model and Omni address
+	// included, so that trying another provider and coming back loses
+	// neither.
+	asrSecrets map[string]string
+	asrDrafts  map[string]asr.Config
+	// keyChecks are the keychain accounts already looked up.
+	keyChecks map[string]bool
+	// omniWorkspace and omniRegion draft the Omni address: the region is an
+	// index of asr.OmniRegions, or len(asr.OmniRegions) for a custom address.
+	omniWorkspace string
+	omniRegion    int
 	// Jev is the vocabulary check drafted on its tab; jevSecret the typed
 	// API key.
 	Jev       jev.Config
@@ -154,7 +173,7 @@ var pages = []struct {
 }{
 	{"voice", "设备与语音", "从 FoloToy AI Passport 接收音频并在本机转写", iconWave},
 	{"vocabulary", "词库", "个人专名、通用词库与 IT 行业词库", iconBook},
-	{"recognition", "语音识别", "Apple 本地识别，或支付宝 MaaS 在线实时识别", iconCaption},
+	{"recognition", "语音识别", "Apple 本地识别，或在线识别服务", iconCaption},
 	{"refinement", "AI 润色", "本地优先，失败时保留 ASR 原文", iconSparkle},
 	{"firmware", "固件安装", "通过 USB 安装随应用提供的固件", iconChip},
 	{"permissions", "权限", "开始使用前授予系统权限，避免使用中途失败", iconShield},
@@ -175,6 +194,7 @@ func (v *View) Draw(c *ui.Context) {
 	if !v.Loaded {
 		v.Config = v.Snapshot.Config
 		v.ASR = v.Snapshot.ASR
+		v.syncOmni()
 		v.Packs = v.Snapshot.Packs
 		v.Jev = v.Snapshot.Jev
 		v.Loaded = true
@@ -327,7 +347,7 @@ func (v *View) pane(c *ui.Context) {
 			ui.Row(c).Height(30).PaddingX(12).Gap(8).Radius(15).Material(glass.Glass{}).Children(func() {
 				label, state := modelStatus(v.Snapshot.Model)
 				if v.Snapshot.ASR.Online() {
-					label, state = "在线识别 · 支付宝 MaaS", modelReady
+					label, state = "在线识别 · "+v.Snapshot.ASR.Provider(), modelReady
 				}
 				statusDot(c, pick(state == modelReady, colGreen, pick(state == modelFailed, colRed, colFaint)))
 				ui.Text(c, label).FontSize(11.5).TextColor(colSubtle).SingleLine().MaxWidth(220)
@@ -452,7 +472,7 @@ func (v *View) device(c *ui.Context) {
 	}
 	where := "在本机实时转写。"
 	if s.ASR.Online() {
-		where = "经支付宝 MaaS 在线实时转写。"
+		where = "经" + s.ASR.Provider() + "在线转写。"
 	}
 	ui.RichText(c,
 		ui.Span{Text: "仅使用 "},
@@ -818,18 +838,20 @@ func (v *View) recognition(c *ui.Context) {
 		if !v.ASR.Streaming() {
 			when = "在松开按键后整段"
 		}
-		notice(c, "asr-online", "在线识别：每次语音的音频会"+when+"发送到"+v.ASR.Provider()+"（"+v.ASR.Host()+"）转写，不发送词库，也不在本机保存音频。连接失败时本次语音结束，不会自动改用本地识别。", true)
+		to := v.ASR.Provider()
+		if host := v.ASR.Host(); host != "" {
+			to += "（" + host + "）"
+		}
+		notice(c, "asr-online", "在线识别：每次语音的音频会"+when+"发送到"+to+"转写，不发送词库，也不在本机保存音频。连接失败时本次语音结束，不会自动改用本地识别。", true)
 		group(c, "asr-key", v.ASR.Provider(), nil, func() {
+			if models := asrModels(v.ASR.Engine); models != nil {
+				v.asrModelRow(c, models)
+			}
 			if v.ASR.Engine == asr.EngineOmni {
-				field(c, "WebSocket 端点", func() {
-					ui.TextInput(c, &v.ASR.Endpoint).Placeholder(asr.DefaultOmniEndpoint).Grow(1).Label("WebSocket 端点")
-				})
-				field(c, "模型", func() {
-					ui.TextInput(c, &v.ASR.Model).Placeholder("qwen3-omni-flash-realtime").Grow(1).Label("识别模型")
-				})
+				v.omniFields(c)
 			}
 			field(c, "API key", func() {
-				ui.TextInput(c, &v.asrSecret).Password().Placeholder("仅保存到 macOS 钥匙串").Grow(1).Label(v.ASR.Provider() + " API key")
+				ui.TextInput(c, &v.asrSecret).Password().Placeholder(v.keyPlaceholder(asrAccount(v.ASR), "仅保存到 macOS 钥匙串")).Grow(1).Label(v.ASR.Provider() + " API key")
 			})
 		})
 	}
@@ -854,7 +876,13 @@ func (v *View) recognition(c *ui.Context) {
 // asrSelect is the drop-down of the recognition engines, a capsule like the
 // segmented controls.
 func (v *View) asrSelect(c *ui.Context) {
-	current := asr.ChoiceOf(v.ASR)
+	engines := asrEngines()
+	current := engines[0]
+	for _, e := range engines {
+		if e.ID == asr.Normalize(v.ASR).Engine {
+			current = e
+		}
+	}
 	id := current.ID
 	sel := ui.SelectBase(c.Key("asr-select"), &id)
 	sel.Trigger.Height(32).PaddingX(14).Gap(10).Radius(999).Shrink(0).Border(1, colHairline).Label("选择识别引擎").
@@ -864,7 +892,7 @@ func (v *View) asrSelect(c *ui.Context) {
 	})
 	sel.Popup(func(panel ui.Element) {
 		panel.Margin(6, 0, 0, 0).Padding(4).Gap(2).Radius(14).Background(colCard).Border(1, colHairline).Shadow(0, 8, 24, 0, ui.RGBA(0, 0, 0, 0.45))
-		for _, ch := range asr.Choices {
+		for _, ch := range engines {
 			item := sel.Item(ch.ID).Height(30).PaddingX(10).Gap(8).Radius(10)
 			if item.Highlighted() {
 				item.Background(colPillHover)
@@ -876,15 +904,180 @@ func (v *View) asrSelect(c *ui.Context) {
 		}
 	})
 	if sel.Trigger.Changed() {
-		for _, ch := range asr.Choices {
+		for _, ch := range engines {
 			if ch.ID == id {
-				if ch.Config.Engine != v.ASR.Engine {
-					v.asrSecret = ""
-				}
-				v.ASR = ch.Config
+				v.chooseASR(ch.Config)
 			}
 		}
 	}
+}
+
+// asrEngines are the entries of the engine drop-down: one per provider, in
+// the order of asr.Choices. The models of a provider share its API key, so
+// they are chosen in its card rather than listed as separate engines.
+func asrEngines() []asr.Choice {
+	var out []asr.Choice
+	for _, ch := range asr.Choices {
+		if i := slices.IndexFunc(out, func(o asr.Choice) bool { return o.ID == ch.Config.Engine }); i >= 0 {
+			out[i].Label = ch.Config.Provider()
+			continue
+		}
+		ch.ID = ch.Config.Engine
+		out = append(out, ch)
+	}
+	return out
+}
+
+// asrModels are the choices of engine when it offers more than one.
+func asrModels(engine string) []asr.Choice {
+	var out []asr.Choice
+	for _, ch := range asr.Choices {
+		if ch.Config.Engine == engine {
+			out = append(out, ch)
+		}
+	}
+	if len(out) < 2 {
+		return nil
+	}
+	return out
+}
+
+// asrModelRow chooses among the models of the drafted provider; its key
+// field below serves them all.
+func (v *View) asrModelRow(c *ui.Context, models []asr.Choice) {
+	labels := make([]string, len(models))
+	i := 0
+	for j, m := range models {
+		_, labels[j], _ = strings.Cut(m.Label, " · ")
+		if m.Config == v.ASR {
+			i = j
+		}
+	}
+	row(c, "asr-model", func() {
+		label(c, "模型", "同一服务商的模型共用下方的 API key，切换模型不用重新填写。")
+		if segmented(c, "asr-model-seg", &i, labels) {
+			v.chooseASR(models[i].Config)
+		}
+	})
+}
+
+// chooseASR drafts the engine next. A model of the same provider keeps the
+// typed key; another provider never gets it, but brings back what was
+// drafted for it before: its typed key, model and Omni address.
+func (v *View) chooseASR(next asr.Config) {
+	if next.Engine == v.ASR.Engine {
+		if next.Engine != asr.EngineOmni {
+			v.ASR = next
+		}
+		return
+	}
+	if v.asrSecrets == nil {
+		v.asrSecrets, v.asrDrafts = map[string]string{}, map[string]asr.Config{}
+	}
+	v.asrSecrets[v.ASR.Engine], v.asrDrafts[v.ASR.Engine] = v.asrSecret, v.ASR
+	v.asrSecret = v.asrSecrets[next.Engine]
+	if draft, ok := v.asrDrafts[next.Engine]; ok {
+		next = draft
+	} else if v.Snapshot.ASR.Engine == next.Engine {
+		next = v.Snapshot.ASR
+	}
+	v.ASR = next
+	v.syncOmni()
+}
+
+// keyPlaceholder is the hint of an empty API key field: that account
+// already holds a key, which an empty field keeps, or else none. It asks
+// the app once to look account up; "" is an account not complete yet.
+func (v *View) keyPlaceholder(account, none string) string {
+	if account == "" {
+		return none
+	}
+	saved, known := v.Snapshot.SavedKeys[account]
+	if !known && !v.keyChecks[account] && v.Actions.CheckKey != nil {
+		if v.keyChecks == nil {
+			v.keyChecks = map[string]bool{}
+		}
+		v.keyChecks[account] = true
+		v.Actions.CheckKey(account)
+	}
+	if saved {
+		return "已保存在钥匙串，留空即沿用；填写新 key 会替换"
+	}
+	return none
+}
+
+// asrAccount is the keychain account of the key of an online engine, or ""
+// while the draft cannot be saved, such as Omni without a workspace.
+func asrAccount(c asr.Config) string {
+	c = asr.Normalize(c)
+	if !c.Online() || c.Validate() != nil {
+		return ""
+	}
+	return asr.KeyAccount(c)
+}
+
+// endpointAccount is the keychain account of the refinement key: the
+// endpoint itself, once it is one.
+func endpointAccount(endpoint string) string {
+	if refinement.CheckRemote(refinement.Config{Endpoint: endpoint, Model: "-"}) != nil {
+		return ""
+	}
+	return endpoint
+}
+
+// syncOmni drafts the region and workspace from the Omni address.
+func (v *View) syncOmni() {
+	v.omniWorkspace, v.omniRegion = "", 0
+	if v.ASR.Engine != asr.EngineOmni || strings.TrimSpace(v.ASR.Endpoint) == "" {
+		return
+	}
+	ws, region, ok := asr.ParseOmniEndpoint(v.ASR.Endpoint)
+	if !ok {
+		v.omniRegion = len(asr.OmniRegions)
+		return
+	}
+	v.omniWorkspace = ws
+	for i, r := range asr.OmniRegions {
+		if r.ID == region {
+			v.omniRegion = i
+		}
+	}
+}
+
+// omniFields is the form of Alibaba Cloud Omni Realtime: a region and the
+// workspace ID make its address, or the address is typed in full.
+func (v *View) omniFields(c *ui.Context) {
+	custom := len(asr.OmniRegions)
+	labels := []string{}
+	for _, r := range asr.OmniRegions {
+		labels = append(labels, r.Label)
+	}
+	labels = append(labels, "自定义")
+	row(c, "asr-region", func() {
+		label(c, "地域", "每个百炼工作空间在各地域有独立的接入地址；选“自定义”可直接填写完整地址。")
+		if segmented(c, "asr-region-seg", &v.omniRegion, labels) && v.omniRegion != custom {
+			v.ASR.Endpoint = asr.OmniEndpoint(strings.TrimSpace(v.omniWorkspace), asr.OmniRegions[v.omniRegion].ID)
+		}
+	})
+	if v.omniRegion == custom {
+		field(c, "WebSocket 地址", func() {
+			ui.TextInput(c, &v.ASR.Endpoint).Placeholder("wss://{工作空间 ID}.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime").Grow(1).Label("WebSocket 地址")
+		})
+	} else {
+		field(c, "工作空间", func() {
+			if ui.TextInput(c, &v.omniWorkspace).Placeholder("百炼控制台中的工作空间 ID").Grow(1).Label("工作空间 ID").Changed() {
+				v.ASR.Endpoint = asr.OmniEndpoint(strings.TrimSpace(v.omniWorkspace), asr.OmniRegions[v.omniRegion].ID)
+			}
+		})
+		if v.ASR.Endpoint != "" {
+			field(c, "连接地址", func() {
+				ui.Text(c, v.ASR.Endpoint).FontSize(12).TextColor(colMuted).SingleLine().Grow(1).MinWidth(0)
+			})
+		}
+	}
+	field(c, "模型", func() {
+		ui.TextInput(c, &v.ASR.Model).Placeholder(asr.Normalize(asr.Config{Engine: asr.EngineOmni}).Model).Grow(1).Label("识别模型")
+	})
 }
 
 // asrHelp says what the chosen engine does with the audio.
@@ -892,6 +1085,8 @@ func asrHelp(c asr.Config) string {
 	switch {
 	case c.Engine == asr.EngineOmni:
 		return "WebSocket 实时上传音频，松开按键后提交并等待最终转写；只识别你说的话，不生成对话回答。"
+	case c.Engine == asr.EngineDoubao:
+		return "火山引擎豆包双向流式识别：边说边出字，松开按键后返回最终结果；小时版按识别时长计费，并发版按同时可用的并发路数计费，需与该 API key 在火山引擎控制台开通的方式一致。API key 在新版语音控制台获取。"
 	case c.Streaming():
 		return "在线流式识别：边说边出字，松开按键后返回最终结果。"
 	case c.Online():
@@ -931,7 +1126,29 @@ func (v *View) refinement(c *ui.Context) {
 		})
 		field(c, "模型", func() { ui.TextInput(c, &v.Config.Model).Placeholder("模型名称").Grow(1).Label("模型") })
 		field(c, "API key", func() {
-			ui.TextInput(c, &v.secret).Password().Placeholder("仅保存到 macOS 钥匙串").Grow(1).Label("API key")
+			ui.TextInput(c, &v.secret).Password().Placeholder(v.keyPlaceholder(endpointAccount(v.Config.Endpoint), "仅保存到 macOS 钥匙串")).Grow(1).Label("API key")
+		})
+		row(c, "stream", func() {
+			label(c, "流式输出", "以流式（SSE）请求并收齐全文：润色结果仍在校验后整体插入，不会更快；只用于只接受流式请求的服务或模型。")
+			ui.Switch(c, &v.Config.Stream).Label("以流式请求")
+		})
+	})
+	group(c, "routing", "供应商路由（可选）", nil, func() {
+		row(c, "routing-about", func() {
+			label(c, "指定供应商", "同一模型有多个供应商的网关（如蚂蚁数科 DTMaaS）可在请求里指定；填模型详情页的供应商标识，如 antdigital，多个用逗号分隔。全部留空则不传。")
+		})
+		field(c, "仅允许", func() {
+			ui.TextInput(c, &v.Config.ProviderOnly).Placeholder("only：只使用这些供应商").Grow(1).Label("仅允许的供应商")
+		})
+		field(c, "优先顺序", func() {
+			ui.TextInput(c, &v.Config.ProviderOrder).Placeholder("order：按此顺序优先选择").Grow(1).Label("供应商优先顺序")
+		})
+		field(c, "排除", func() {
+			ui.TextInput(c, &v.Config.ProviderIgnore).Placeholder("ignore：不使用这些供应商").Grow(1).Label("排除的供应商")
+		})
+		row(c, "routing-strict", func() {
+			label(c, "不用列表之外的供应商", "开启后传 allow_fallbacks: false：优先顺序里的供应商都不可用时不改用其他供应商。")
+			ui.Switch(c, &v.Config.ProviderStrict).Label("不允许其他供应商")
 		})
 	})
 	ui.Row(c).Gap(12).Wrap().GapY(12).Children(func() {
@@ -987,7 +1204,7 @@ func modeHelp(mode string) string {
 	case "names":
 		return "只按词库纠正专有名词，其他文字和标点不动。"
 	case "structured":
-		return "在轻度的基础上按内容分段或列点，不改写内容。"
+		return "在轻度的基础上按上下文纠正错字、理顺病句，再分段或列点，不删减、不添加内容。"
 	}
 	return "按词库纠正专有名词，去掉“喂、嗯、那个”等语气词并修正标点，不改写内容。"
 }

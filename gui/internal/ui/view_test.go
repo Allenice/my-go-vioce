@@ -1,9 +1,12 @@
 package ui
 
 import (
+	"fmt"
 	"image/png"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -18,7 +21,7 @@ import (
 type intents struct {
 	scan, cancel, warmup, install, configure int
 	requested, settings                      []permission.Name
-	tested                                   []refinement.Config
+	tested, configured                       []refinement.Config
 	testKeys, configureKeys                  []string
 	put                                      []vocabulary.Term
 	previous                                 []string
@@ -34,6 +37,7 @@ type intents struct {
 	jevKeys                                  []string
 	jevTested                                []jev.Config
 	jevDeleted                               int
+	keyChecks                                []string
 }
 
 func testView(rec *intents) *View {
@@ -60,8 +64,9 @@ func testView(rec *intents) *View {
 			},
 			TestASR:      func(c asr.Config, _ string) { rec.asrTested = append(rec.asrTested, c) },
 			DeleteASRKey: func() { rec.asrDeleted++ },
-			Configure: func(_ refinement.Config, key string) {
+			Configure: func(c refinement.Config, key string) {
 				rec.configure++
+				rec.configured = append(rec.configured, c)
 				rec.configureKeys = append(rec.configureKeys, key)
 			}, Credential: func(string, string) {}, DeleteCredential: func(string) {},
 			TestRemote: func(c refinement.Config, key string) {
@@ -78,12 +83,13 @@ func testView(rec *intents) *View {
 			},
 			TestJev:      func(c jev.Config, _ string) { rec.jevTested = append(rec.jevTested, c) },
 			DeleteJevKey: func() { rec.jevDeleted++ },
+			CheckKey:     func(account string) { rec.keyChecks = append(rec.keyChecks, account) },
 		},
 	}
 }
 
 func newTester(v *View) *ui.Tester {
-	tt := ui.NewTester(v.Draw, 1120, 840)
+	tt := ui.NewTester(v.Draw, 1120, 1100)
 	tt.SetDark(true)
 	tt.SetTitleBar(ui.TitleBar{Height: TitleBarHeight, Left: 78})
 	return tt
@@ -320,7 +326,7 @@ func TestRecognitionDropdownChoosesOnlineModel(t *testing.T) {
 	if err := tt.Click("选择识别引擎"); err != nil {
 		t.Fatal(err)
 	}
-	if err := tt.Click("支付宝 MaaS · Fun-ASR 实时"); err != nil || v.ASR != asr.Choices[1].Config {
+	if err := tt.Click("支付宝 MaaS"); err != nil || v.ASR != asr.Choices[1].Config {
 		t.Fatalf("choose: %v %+v", err, v.ASR)
 	}
 	if !tt.HasText("在线识别：每次语音的音频会实时发送到支付宝 MaaS（maas-api.antdigital.com）转写，不发送词库，也不在本机保存音频。连接失败时本次语音结束，不会自动改用本地识别。") {
@@ -345,7 +351,7 @@ func TestRecognitionDropdownChoosesOnlineModel(t *testing.T) {
 	}
 	v.ASR = asr.Choices[2].Config
 	tt.Frame()
-	if tt.HasText("连接成功") || !tt.HasText("支付宝 MaaS · Paraformer 实时 v2") {
+	if tt.HasText("连接成功") || !tt.HasText("Paraformer 实时 v2") {
 		t.Fatalf("stale feedback or label: %q", tt.Texts())
 	}
 }
@@ -356,11 +362,121 @@ func TestRecognitionDropdownChoosesWholeRecording(t *testing.T) {
 	v.Page = 2
 	tt := newTester(v)
 	_ = tt.Click("选择识别引擎")
-	if err := tt.Click("支付宝 MaaS · Qwen3-ASR-Flash（非流式）"); err != nil || v.ASR != asr.Choices[3].Config {
+	_ = tt.Click("支付宝 MaaS")
+	if err := tt.Click("Qwen3-ASR-Flash（非流式）"); err != nil || v.ASR != asr.Choices[3].Config {
 		t.Fatalf("choose: %v %+v", err, v.ASR)
 	}
 	if !tt.HasText("在线识别：每次语音的音频会在松开按键后整段发送到支付宝 MaaS") || !tt.HasText(asrHelp(v.ASR)) || !tt.HasText("测试连接") {
 		t.Fatalf("texts %q", tt.Texts())
+	}
+}
+
+// One provider's models share its key, so the drop-down lists providers
+// and the card chooses the model under one key field. Another provider
+// never gets the typed key, and switching back brings back what was
+// drafted for each provider: key, model and Omni address.
+func TestRecognitionKeepsKeysAcrossEngineSwitches(t *testing.T) {
+	var labels []string
+	for _, e := range asrEngines() {
+		labels = append(labels, e.Label)
+	}
+	if fmt.Sprint(labels) != "[Apple 本地（SpeechAnalyzer） 支付宝 MaaS 阿里云百炼 · Omni Realtime（WebSocket） 火山引擎豆包]" {
+		t.Fatalf("providers %q", labels)
+	}
+	var rec intents
+	v := testView(&rec)
+	v.Page = 2
+	tt := newTester(v)
+	provider := func(label string) {
+		t.Helper()
+		_ = tt.Click("选择识别引擎")
+		if err := tt.Click(label); err != nil {
+			t.Fatalf("choose %s: %v", label, err)
+		}
+	}
+	model := func(label string) {
+		t.Helper()
+		if err := tt.Click(label); err != nil {
+			t.Fatalf("model %s: %v", label, err)
+		}
+	}
+	provider("支付宝 MaaS")
+	if v.ASR != asr.Choices[1].Config || !tt.HasText("Paraformer 实时 v2") || !tt.HasText("Qwen3-ASR-Flash（非流式）") {
+		t.Fatalf("Alipay models: %+v %q", v.ASR, tt.Texts())
+	}
+	v.asrSecret = "alipay-key"
+	model("Qwen3-ASR-Flash（非流式）")
+	if v.ASR != asr.Choices[3].Config || v.asrSecret != "alipay-key" {
+		t.Fatalf("same provider lost the typed key: %+v %q", v.ASR, v.asrSecret)
+	}
+	provider("火山引擎豆包")
+	if v.ASR != asr.Choices[5].Config || v.asrSecret != "" {
+		t.Fatalf("key followed another provider: %+v %q", v.ASR, v.asrSecret)
+	}
+	v.asrSecret = "doubao-key"
+	model("流式语音识别 2.0（并发版）")
+	provider("阿里云百炼 · Omni Realtime（WebSocket）")
+	v.omniWorkspace = "ws-demo"
+	v.ASR.Endpoint = asr.OmniEndpoint("ws-demo", "cn-beijing")
+	v.asrSecret = "omni-key"
+	provider("支付宝 MaaS")
+	if v.ASR != asr.Choices[3].Config || v.asrSecret != "alipay-key" {
+		t.Fatalf("Alipay draft not restored: %+v %q", v.ASR, v.asrSecret)
+	}
+	provider("火山引擎豆包")
+	if v.ASR != asr.Choices[6].Config || v.asrSecret != "doubao-key" {
+		t.Fatalf("Doubao draft not restored: %+v %q", v.ASR, v.asrSecret)
+	}
+	provider("阿里云百炼 · Omni Realtime（WebSocket）")
+	if v.asrSecret != "omni-key" || v.ASR.Endpoint != asr.OmniEndpoint("ws-demo", "cn-beijing") || v.omniWorkspace != "ws-demo" {
+		t.Fatalf("Omni draft lost: %q %+v %q", v.asrSecret, v.ASR, v.omniWorkspace)
+	}
+	v.chooseASR(asr.Choices[4].Config)
+	if v.ASR.Endpoint == "" {
+		t.Fatal("choosing Omni again cleared its address")
+	}
+}
+
+// An empty key field says when the keychain already holds a key, looking
+// each account up once and never one that cannot hold a key yet.
+func TestKeyFieldsShowSavedKeys(t *testing.T) {
+	var rec intents
+	v := testView(&rec)
+	const none = "仅保存到 macOS 钥匙串"
+	if got := v.keyPlaceholder("", none); got != none || len(rec.keyChecks) != 0 {
+		t.Fatalf("incomplete account: %q %v", got, rec.keyChecks)
+	}
+	account := asrAccount(asr.Choices[1].Config)
+	if account != "asr:alipay-maas" || asrAccount(asr.Config{Engine: asr.EngineOmni}) != "" || asrAccount(asr.Choices[0].Config) != "" {
+		t.Fatalf("accounts %q", account)
+	}
+	v.keyPlaceholder(account, none)
+	if got := v.keyPlaceholder(account, none); got != none || len(rec.keyChecks) != 1 || rec.keyChecks[0] != account {
+		t.Fatalf("lookup: %q %v", got, rec.keyChecks)
+	}
+	v.Snapshot.SavedKeys = map[string]bool{account: true}
+	if got := v.keyPlaceholder(account, none); !strings.Contains(got, "已保存") || len(rec.keyChecks) != 1 {
+		t.Fatalf("saved: %q %v", got, rec.keyChecks)
+	}
+	if endpointAccount("https://api.deepseek.com/v1") != "https://api.deepseek.com/v1" || endpointAccount("https://") != "" || endpointAccount("http://example.com") != "" {
+		t.Fatal("refinement accounts")
+	}
+	if jevAccount(jev.Config{}) == "" {
+		t.Fatal("default Jev account")
+	}
+	// The recognition page asks about the drafted engine's account.
+	v.Page = 2
+	v.ASR = asr.Choices[5].Config
+	v.Snapshot.ASR = v.ASR
+	v.Loaded = true
+	tt := newTester(v)
+	tt.Frame()
+	if !slices.Contains(rec.keyChecks, "asr:doubao") {
+		t.Fatalf("recognition page did not look up its key: %v", rec.keyChecks)
+	}
+	// The status names the saved provider, not always Alipay.
+	if !tt.HasText("在线识别 · 火山引擎豆包") || tt.HasText("在线识别 · 支付宝 MaaS") {
+		t.Fatalf("status %q", tt.Texts())
 	}
 }
 
@@ -375,17 +491,43 @@ func TestRecognitionOmniKeepsProviderCredentialsSeparate(t *testing.T) {
 	if err := tt.Click("阿里云百炼 · Omni Realtime（WebSocket）"); err != nil || v.ASR.Engine != asr.EngineOmni {
 		t.Fatalf("choose Omni: %v %+v", err, v.ASR)
 	}
-	if v.asrSecret != "" || !tt.HasText("WebSocket 端点") || !tt.HasText("阿里云百炼") || !tt.HasText(asrHelp(v.ASR)) {
+	if v.asrSecret != "" || !tt.HasText("工作空间 ID") || !tt.HasText("华北2（北京）") || !tt.HasText("新加坡") || !tt.HasText("阿里云百炼") || !tt.HasText(asrHelp(v.ASR)) || tt.HasText("WebSocket 地址") {
 		t.Fatalf("Omni form or previous provider key: %q", tt.Texts())
 	}
-	v.ASR.Endpoint = "wss://workspace.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime"
+	if v.ASR.Endpoint != "" || v.ASR.Model != "qwen3.8-omni-flash-realtime" || v.omniRegion != 0 {
+		t.Fatalf("Omni defaults: %+v region %d", v.ASR, v.omniRegion)
+	}
+	if err := tt.Click("保存设置"); err != nil || len(rec.asrSaved) != 1 {
+		t.Fatalf("save without a workspace: %v %+v", err, rec)
+	}
+	v.omniWorkspace = "ws-demo"
+	tt.Frame()
+	if err := tt.Click("新加坡"); err != nil || v.ASR.Endpoint != "wss://ws-demo.ap-southeast-1.maas.aliyuncs.com/api-ws/v1/realtime" || !tt.HasText(v.ASR.Endpoint) {
+		t.Fatalf("Singapore address: %v %+v", err, v.ASR)
+	}
+	if err := tt.Click("华北2（北京）"); err != nil || v.ASR.Endpoint != "wss://ws-demo.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime" {
+		t.Fatalf("Beijing address: %v %+v", err, v.ASR)
+	}
 	v.asrSecret = "omni-key"
 	tt.Frame()
 	if err := tt.Click("测试连接"); err != nil || len(rec.asrTested) != 1 || rec.asrTested[0] != v.ASR {
-		t.Fatalf("test custom endpoint: %v %+v", err, rec.asrTested)
+		t.Fatalf("test workspace endpoint: %v %+v", err, rec.asrTested)
 	}
-	if err := tt.Click("保存设置"); err != nil || len(rec.asrSaved) != 1 || rec.asrSaved[0] != v.ASR || rec.asrKeys[0] != "omni-key" {
+	if err := tt.Click("保存设置"); err != nil || len(rec.asrSaved) != 2 || rec.asrSaved[1] != v.ASR || rec.asrKeys[1] != "omni-key" {
 		t.Fatalf("save Omni: %v %+v", err, rec)
+	}
+	if err := tt.Click("自定义"); err != nil || !tt.HasText("WebSocket 地址") || tt.HasText("工作空间 ID") || v.ASR.Endpoint == "" {
+		t.Fatalf("custom address keeps the composed one for editing: %v %q", err, tt.Texts())
+	}
+	v.ASR.Endpoint = "wss://other.example.com/api-ws/v1/realtime"
+	v.syncOmni()
+	if v.omniRegion != len(asr.OmniRegions) || v.omniWorkspace != "" {
+		t.Fatalf("a foreign address is custom: %d %q", v.omniRegion, v.omniWorkspace)
+	}
+	v.ASR.Endpoint = "wss://ws-2.ap-southeast-1.maas.aliyuncs.com/api-ws/v1/realtime"
+	v.syncOmni()
+	if v.omniRegion != 1 || v.omniWorkspace != "ws-2" {
+		t.Fatalf("a workspace address is split: %d %q", v.omniRegion, v.omniWorkspace)
 	}
 }
 
@@ -585,5 +727,30 @@ func TestVocabularyJevTab(t *testing.T) {
 	}
 	if err := tt.Click("删除凭据"); err != nil || rec.jevDeleted != 1 {
 		t.Fatalf("delete: %v %d", err, rec.jevDeleted)
+	}
+}
+
+func TestRefinementStreamAndProviderRoutingDraft(t *testing.T) {
+	var rec intents
+	v := testView(&rec)
+	v.Page = 3
+	tt := newTester(v)
+	if !tt.HasText("供应商路由（可选）") || !tt.HasText("流式输出") {
+		t.Fatalf("texts %q", tt.Texts())
+	}
+	if err := tt.Click("以流式请求"); err != nil || !v.Config.Stream {
+		t.Fatalf("stream: %v %+v", err, v.Config)
+	}
+	if err := tt.Click("不允许其他供应商"); err != nil || !v.Config.ProviderStrict {
+		t.Fatalf("strict: %v %+v", err, v.Config)
+	}
+	v.Config.Endpoint, v.Config.Model = "https://provider.example/v1", "m"
+	v.Config.ProviderOrder = "antdigital, bigmodel"
+	tt.Frame()
+	if err := tt.Click("保存设置"); err != nil || rec.configure != 1 {
+		t.Fatalf("save: %v", err)
+	}
+	if got := rec.configured[0]; !got.Stream || got.ProviderOrder != "antdigital, bigmodel" || !got.ProviderStrict {
+		t.Fatalf("saved %+v", got)
 	}
 }
