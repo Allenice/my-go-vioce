@@ -197,7 +197,7 @@ func TestRefinementSegmentsUpdateDraft(t *testing.T) {
 func TestRemoteConnectionTest(t *testing.T) {
 	var rec intents
 	v := testView(&rec)
-	v.Page = 3
+	v.Page, v.Snapshot.Config.Engine = 3, "remote"
 	tt := newTester(v)
 	// Typed on the page, not saved yet.
 	v.Config.Endpoint, v.Config.Model, v.secret = "https://provider.example/v1", "m", "typed"
@@ -228,7 +228,7 @@ func TestRemoteConnectionTest(t *testing.T) {
 func TestSaveSettingsHandsOverTypedKey(t *testing.T) {
 	var rec intents
 	v := testView(&rec)
-	v.Page = 3
+	v.Page, v.Snapshot.Config.Engine = 3, "remote"
 	tt := newTester(v)
 	v.Config.Endpoint, v.secret = "https://provider.example/v1", "typed"
 	tt.Frame()
@@ -735,6 +735,18 @@ func TestRefinementStreamAndProviderRoutingDraft(t *testing.T) {
 	v := testView(&rec)
 	v.Page = 3
 	tt := newTester(v)
+	for _, text := range []string{"OpenAI 兼容接口", "供应商路由（可选）", "流式输出", "测试连接", "保存到钥匙串", "端点", "API key"} {
+		if text != "OpenAI 兼容接口" && tt.HasText(text) {
+			t.Fatalf("local engine shows %q", text)
+		}
+	}
+	if !tt.HasText("保存设置") {
+		t.Fatalf("local engine has no save: %q", tt.Texts())
+	}
+	if err := tt.Click("OpenAI 兼容接口"); err != nil || v.Config.Engine != "remote" {
+		t.Fatalf("engine: %v %+v", err, v.Config)
+	}
+	tt.Frame()
 	if !tt.HasText("供应商路由（可选）") || !tt.HasText("流式输出") {
 		t.Fatalf("texts %q", tt.Texts())
 	}

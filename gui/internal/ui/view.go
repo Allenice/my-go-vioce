@@ -1110,9 +1110,41 @@ func (v *View) refinement(c *ui.Context) {
 			}
 		})
 	})
-	if v.Config.Engine == "remote" {
+	remote := v.Config.Engine == "remote"
+	if remote {
 		notice(c, "remote", "显式远端模式：最终转写和词库将发送到所填 HTTPS 端点；音频不发送。", true)
+		v.remoteSettings(c)
 	}
+	ui.Row(c).Gap(12).Wrap().GapY(12).Children(func() {
+		if remote {
+			if pill(c, "delete-cred", "删除凭据", pillDanger, nil, nil, false) {
+				v.Actions.DeleteCredential(v.Config.Endpoint)
+			}
+			ui.Box(c).Grow(1).MinWidth(24).Height(1).Background(colRule)
+			if pill(c, "test-remote", pickText(v.Snapshot.Testing, "正在测试…", "测试连接"), pillSecondary, nil, nil, v.Snapshot.Testing) {
+				v.Actions.TestRemote(v.Config, v.secret)
+			}
+			if pill(c, "save-cred", "保存到钥匙串", pillSecondary, iconKey, nil, false) {
+				v.Actions.Credential(v.Config.Endpoint, v.secret)
+				v.clearSecret()
+			}
+		} else {
+			ui.Box(c).Grow(1)
+		}
+		if pill(c, "save-config", "保存设置", pillPrimary, nil, iconArrow, false) {
+			v.Actions.Configure(v.Config, v.secret)
+			v.clearSecret()
+		}
+	})
+	s := v.Snapshot
+	if s.Feedback != "" && !s.Testing && s.FeedbackFor == v.Config {
+		feedback(c, s.Feedback, s.FeedbackOK)
+	}
+}
+
+// remoteSettings holds the fields that only an OpenAI-compatible endpoint
+// uses; they are hidden while the local engine is chosen.
+func (v *View) remoteSettings(c *ui.Context) {
 	group(c, "endpoint", "OpenAI 兼容接口", nil, func() {
 		field(c, "接口", func() {
 			i := indexOf(apis, v.Config.API)
@@ -1151,27 +1183,6 @@ func (v *View) refinement(c *ui.Context) {
 			ui.Switch(c, &v.Config.ProviderStrict).Label("不允许其他供应商")
 		})
 	})
-	ui.Row(c).Gap(12).Wrap().GapY(12).Children(func() {
-		if pill(c, "delete-cred", "删除凭据", pillDanger, nil, nil, false) {
-			v.Actions.DeleteCredential(v.Config.Endpoint)
-		}
-		ui.Box(c).Grow(1).MinWidth(24).Height(1).Background(colRule)
-		if pill(c, "test-remote", pickText(v.Snapshot.Testing, "正在测试…", "测试连接"), pillSecondary, nil, nil, v.Snapshot.Testing) {
-			v.Actions.TestRemote(v.Config, v.secret)
-		}
-		if pill(c, "save-cred", "保存到钥匙串", pillSecondary, iconKey, nil, false) {
-			v.Actions.Credential(v.Config.Endpoint, v.secret)
-			v.clearSecret()
-		}
-		if pill(c, "save-config", "保存设置", pillPrimary, nil, iconArrow, false) {
-			v.Actions.Configure(v.Config, v.secret)
-			v.clearSecret()
-		}
-	})
-	s := v.Snapshot
-	if s.Feedback != "" && !s.Testing && s.FeedbackFor == v.Config {
-		feedback(c, s.Feedback, s.FeedbackOK)
-	}
 }
 
 // clearSecret forgets the typed API key once it was handed over to be
