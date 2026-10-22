@@ -6,6 +6,16 @@
 
 Each `## <version>` section is the release note of one signed `go-voice` release. `scripts/release.sh` requires the section in both language files; the Simplified Chinese section is signed into the update manifest and shown in the in-app update window, because the app interface is Chinese. Write user-visible changes only and keep both sections aligned. See [updates and releases](updates.md).
 
+## 0.6.0
+
+- Add Volcengine Doubao streaming speech recognition as an online engine, in the hour and concurrency plans. Partial text appears while you speak and the reply flagged as last becomes the final transcript. Its API key has its own Keychain account, Test Connection sends only silence, and a failure ends the session without switching engines. Choosing it sends each session's audio to Volcengine, without vocabulary.
+- Make structured refinement an editor: it corrects misheard words from context and general knowledge beyond the vocabulary, including real words that do not fit the sentence, keeps only what you finally said after taking something back, and smooths broken grammar before adding paragraphs or lists. It still refuses summaries, answers and invented text. Disabled, proper-name and light modes are unchanged.
+- Show when an API key is already saved: an empty key field on the refinement, speech recognition and Jev pages says Keychain holds one and that leaving it empty keeps it. The recognition drop-down lists each provider once and its models are chosen in the provider's card under one shared key, so changing models never asks for the key again. The status pill and device page name the chosen provider.
+- Add two options for OpenAI-compatible refinement endpoints: provider routing (only, order and ignore lists, and a switch that forbids other providers) sent as the top-level provider object used by gateways such as DTMaaS, and a stream switch for services and models that only answer streamed requests. Streaming is not faster, because the result is still checked and inserted at once.
+- Change the Alibaba Cloud Omni Realtime default model to qwen3.8-omni-flash-realtime and replace its free-form endpoint with a region (Beijing or Singapore) plus workspace ID; Custom still accepts a full WSS address. Existing Omni users must enter a workspace ID once; a saved model name is kept.
+
+Install the Apple Silicon DMG on macOS 26 or later, or choose Check for Updates… in an installed release. Bundled firmware remains 0.2.0. Build and setup instructions are in the [application guide](https://github.com/vfasky/my-ai-audio/blob/go-voice-v0.6.0/gui/README.md). The live Doubao service, live DTMaaS provider routing, structured-refinement quality across models, installed-update permission retention and physical-device acceptance remain unverified.
+
 ## 0.5.0
 
 - Include 96,336 common Chinese words and a 12,854-term IT pack, both enabled by default. Manage them in Vocabulary > Public Dictionaries; saved changes apply to the next dictation. The two packs contain 108,623 distinct terms after deduplication.
