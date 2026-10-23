@@ -68,12 +68,14 @@ Release builds embed the update feed and the public key from `mygo.json`:
    ./scripts/release.sh --no-upload  # build and verify only
    ```
 
+The build pins `MACOSX_DEPLOYMENT_TARGET` and the C/C++ compiler/linker flags to `macos.minimumSystemVersion` in `mygo.json`. Setting Info.plist alone is insufficient when CGO uses a newer SDK; explicit flags also invalidate cached Go C/C++ objects. Every debug and release build runs `bash scripts/verify-macos-compatibility.sh <app>` to check arm64 support, the app/helper plist declarations, and the actual Mach-O minimum system versions. The SDK version may be newer than the deployment target. The release script also checks the app extracted from the update archive. These checks do not replace installation and dictation testing on the oldest supported macOS.
+
 The script:
 
 1. Checks the version, both changelog sections, the branch, the working tree, the tag, and whether the release is already published. It also checks the signing identity, the notary profile, and the update key: `MYGO_UPDATER_PRIVATE_KEY`, else the keychain item `go-voice update signing key`, else `~/Library/Application Support/mygo/update-keys/go-voice/mygo-update.key`.
 2. Runs `./scripts/validate.sh` (`--skip-tests` skips it).
 3. Runs `./scripts/build.sh --release`. It builds the helpers in release mode, then runs `mygo build -platform darwin/arm64 -o build/release -sign <Developer ID>`. MyGo signs the nested `BluetoothHelper`, `SpeechBridge` (with `entitlements.plist`), and `FirmwareHelper` bundles inside out, then the app, with the hardened runtime and a secure timestamp. It makes `go-voice <version> arm64.dmg`, signs it, submits it to `notarytool` and waits, then staples the ticket to the disk image and to the app. Finally it archives the stapled app, signs the archive, writes deltas from up to three published versions, and writes `update-darwin-arm64.json`.
-4. Verifies `codesign --verify --deep --strict`, the Developer ID authority, team, hardened runtime, and timestamp of the app and every helper, `stapler validate` and `spctl` for the app and disk image, and the signature and staple of the app extracted from the update archive.
+4. Verifies macOS compatibility, `codesign --verify --deep --strict`, the Developer ID authority, team, hardened runtime, and timestamp of the app and every helper, `stapler validate` and `spctl` for the app and disk image, and the compatibility, signature and staple of the app extracted from the update archive.
 5. Copies `go-voice-<version>-macOS-AppleSilicon.dmg`, the archive, deltas, `SHA256SUMS.txt`, `notes.md`, and the manifest to `build/updates/<version>/`.
 6. After confirmation (`--yes` skips it), pushes the annotated tag `go-voice-v<version>`, creates a draft release that is not marked latest, uploads everything else, and uploads the manifest last.
 

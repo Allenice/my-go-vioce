@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 bun_bin="${WAKU_BUN_EXECUTABLE:-bun}"
-"$bun_bin" test scripts/package-firmware.test.mjs scripts/stage-debug-project.test.mjs
+"$bun_bin" test scripts/package-firmware.test.mjs scripts/stage-debug-project.test.mjs scripts/verify-macos-compatibility.test.mjs
 cargo fmt --manifest-path firmware-helper/Cargo.toml --all -- --check
 cargo test --manifest-path firmware-helper/Cargo.toml --locked
 "$bun_bin" scripts/test-helper-manifest-contract.mjs

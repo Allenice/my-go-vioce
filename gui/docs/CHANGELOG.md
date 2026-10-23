@@ -6,6 +6,13 @@
 
 Each `## <version>` section is the release note of one signed `go-voice` release. `scripts/release.sh` requires the section in both language files; the Simplified Chinese section is signed into the update manifest and shown in the in-app update window, because the app interface is Chinese. Write user-visible changes only and keep both sections aligned. See [updates and releases](updates.md).
 
+## 0.6.1
+
+- Fix the macOS deployment target: 0.6.0 declared macOS 26 but its main executable required macOS 27. The main app is now compiled and linked for macOS 26, including its C/C++ dependencies.
+- Check the actual minimum system versions of the main app and all three helpers during packaging and update-archive verification, so a newer build SDK cannot silently raise the supported minimum.
+
+Install the Apple Silicon DMG on macOS 26 or later and replace the previous go-voice in Applications. Bundled firmware remains 0.2.0. Build and setup instructions are in the [application guide](../README.md). Installation, permissions and Bluetooth dictation on a macOS 26 Mac remain unverified.
+
 ## 0.6.0
 
 - Add Volcengine Doubao streaming speech recognition as an online engine, in the hour and concurrency plans. Partial text appears while you speak and the reply flagged as last becomes the final transcript. Its API key has its own Keychain account, Test Connection sends only silence, and a failure ends the session without switching engines. Choosing it sends each session's audio to Volcengine, without vocabulary.

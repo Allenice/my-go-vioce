@@ -46,11 +46,14 @@ for (const [name, bytes] of [["empty", Buffer.alloc(0)], ["bad magic", Buffer.fr
   }));
 }
 
-test("build cleans generated firmware when Cargo fails and preserves preexisting staging", () => fixture(async dir => {
+test("build pins macOS targets, cleans failed staging and preserves preexisting staging", () => fixture(async dir => {
   const gui = join(dir, "gui"), scripts = join(gui, "scripts"), commands = join(dir, "commands");
   await mkdir(scripts, { recursive: true });
   await mkdir(commands);
   await mkdir(join(gui, "resources"));
+  await copyFile(resolve(import.meta.dir, "../mygo.json"), join(gui, "mygo.json"));
+  const minimum = (await Bun.file(join(gui, "mygo.json")).json()).macos.minimumSystemVersion;
+  const targetLog = join(dir, "target-flags.txt");
   const jiebaModule = join(dir, "gojieba");
   const dictionaries = join(jiebaModule, "deps/cppjieba/dict");
   await mkdir(dictionaries, { recursive: true });
@@ -63,14 +66,21 @@ test("build cleans generated firmware when Cargo fails and preserves preexisting
   await copyFile(resolve(import.meta.dir, "../../main/fw_version.h"), join(dir, "main/fw_version.h"));
   for (const name of ["build.sh", "package-firmware.mjs"]) await copyFile(resolve(import.meta.dir, name), join(scripts, name));
   await Bun.write(join(commands, "uname"), "#!/bin/sh\necho arm64\n");
-  await Bun.write(join(commands, "cargo"), "#!/bin/sh\nexit 23\n");
+  await Bun.write(join(commands, "cargo"), '#!/bin/sh\nprintf "%s\\n" "$MACOSX_DEPLOYMENT_TARGET" "$CGO_CFLAGS" "$CGO_CXXFLAGS" "$CGO_LDFLAGS" > "$GOVOICE_TEST_TARGET_LOG"\nexit 23\n');
   await Bun.write(join(commands, "go"), '#!/bin/sh\n[ "$1" != list ] || echo "$GOVOICE_TEST_JIEBA_MODULE"\nexit 0\n');
   for (const name of ["uname", "cargo", "go"]) await chmod(join(commands, name), 0o755);
   const build = () => Bun.spawn(["/bin/bash", join(scripts, "build.sh")], {
-    env: { ...process.env, PATH: `${commands}:${process.env.PATH}`, WAKU_BUN_EXECUTABLE: process.execPath, GOVOICE_TEST_JIEBA_MODULE: jiebaModule },
+    env: {
+      ...process.env, PATH: `${commands}:${process.env.PATH}`, WAKU_BUN_EXECUTABLE: process.execPath,
+      GOVOICE_TEST_JIEBA_MODULE: jiebaModule, GOVOICE_TEST_TARGET_LOG: targetLog,
+      MACOSX_DEPLOYMENT_TARGET: "27.0", CGO_CFLAGS: "-O0", CGO_CXXFLAGS: "-O0", CGO_LDFLAGS: "-g",
+    },
     stdout: "ignore", stderr: "ignore",
   }).exited;
   expect(await build()).toBe(23);
+  expect((await Bun.file(targetLog).text()).trim().split("\n")).toEqual([
+    minimum, `-O0 -mmacosx-version-min=${minimum}`, `-O0 -mmacosx-version-min=${minimum}`, `-g -mmacosx-version-min=${minimum}`,
+  ]);
   await expect(access(join(gui, "firmware"))).rejects.toThrow();
   await expect(access(join(gui, "resources/jieba"))).rejects.toThrow();
   await mkdir(join(gui, "resources/jieba"));

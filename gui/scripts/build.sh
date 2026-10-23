@@ -31,6 +31,18 @@ fi
 bun_bin="${WAKU_BUN_EXECUTABLE:-bun}"
 # gojieba compiles C++; MyGo otherwise defaults its builds to CGO_ENABLED=0.
 export CGO_ENABLED=1
+# MyGo's minimumSystemVersion writes Info.plist only. Pin compilation AND
+# linking so a newer host SDK cannot silently raise the executable's minimum.
+export MACOSX_DEPLOYMENT_TARGET="$(plutil -extract macos.minimumSystemVersion raw -o - mygo.json)"
+[[ "$MACOSX_DEPLOYMENT_TARGET" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] || {
+  echo 'macos.minimumSystemVersion must be a numeric macOS version.' >&2
+  exit 1
+}
+# Explicit flags also invalidate Go's cached C/C++ objects from older builds;
+# MACOSX_DEPLOYMENT_TARGET alone is not part of Go's build-cache key.
+export CGO_CFLAGS="${CGO_CFLAGS:--O2 -g} -mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET"
+export CGO_CXXFLAGS="${CGO_CXXFLAGS:--O2 -g} -mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET"
+export CGO_LDFLAGS="${CGO_LDFLAGS:--O2 -g} -mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET"
 # Never replace an unknown directory: this build owns and removes its staging only.
 if [[ -e firmware || -L firmware ]]; then
   echo 'Remove the existing gui/firmware staging directory before building.' >&2
@@ -104,6 +116,7 @@ if [[ "$mode" == release ]]; then
   # Out of the way of the debug app, which dev sessions rebuild.
   rm -rf build/release
   mygo build -platform darwin/arm64 -o build/release -sign "$MYGO_SIGN_IDENTITY"
+  bash scripts/verify-macos-compatibility.sh build/release/darwin-arm64/go-voice.app
   exit
 fi
 
@@ -115,7 +128,8 @@ build_app() {
   rm -r -- "$debug_staging"
   mkdir "$debug_staging"
   "$bun_bin" scripts/stage-debug-project.mjs "$PWD" "$debug_staging" || return
-  env -u MYGO_UPDATER_PRIVATE_KEY go run github.com/egoist/mygo/cmd/mygo build -debug -skip-dmg -skip-notarize -platform darwin/arm64 ${MYGO_SIGN_IDENTITY:+-sign "$MYGO_SIGN_IDENTITY"} "$debug_staging"
+  env -u MYGO_UPDATER_PRIVATE_KEY go run github.com/egoist/mygo/cmd/mygo build -debug -skip-dmg -skip-notarize -platform darwin/arm64 ${MYGO_SIGN_IDENTITY:+-sign "$MYGO_SIGN_IDENTITY"} "$debug_staging" || return
+  bash scripts/verify-macos-compatibility.sh build/debug/darwin-arm64/go-voice-debug.app
 }
 
 # TCC keys an ad-hoc signed app by its code hash, which every rebuild changes,

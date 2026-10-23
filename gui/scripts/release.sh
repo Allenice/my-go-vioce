@@ -113,7 +113,8 @@ for file in "$app" "$dmg" "$archive" "$manifest"; do
   [[ -e "$file" ]] || fail "The build did not write $file."
 done
 
-step 'Verifying signatures and notarization'
+step 'Verifying compatibility, signatures and notarization'
+bash scripts/verify-macos-compatibility.sh "$app"
 codesign --verify --deep --strict --verbose=2 "$app"
 signature() { codesign --display --verbose=4 "$1" 2>&1; }
 check_signed() {
@@ -136,6 +137,7 @@ spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg
 extracted="$(mktemp -d "${TMPDIR:-/tmp}/go-voice-release.XXXXXX")"
 trap 'rm -rf -- "$extracted"' EXIT
 tar -xzf "$archive" -C "$extracted"
+bash scripts/verify-macos-compatibility.sh "$extracted/go-voice.app"
 codesign --verify --deep --strict "$extracted/go-voice.app"
 xcrun stapler validate "$extracted/go-voice.app"
 [[ "$(plutil -extract version raw -o - "$manifest")" == "$version" ]] || fail "$manifest is not version $version."

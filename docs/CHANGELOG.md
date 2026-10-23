@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- Fix go-voice's macOS 26 build compatibility in 0.6.1: pin C/C++ compilation and linking to the declared minimum instead of inheriting the build machine's newer SDK default. Check the actual arm64 Mach-O minimum for the app and all three helpers, including the update archive. Installation and dictation on a macOS 26 Mac still require device acceptance.
+
 - Prepare `go-voice` 0.6.0 with Doubao streaming recognition, editor-style structured refinement, saved-key hints, provider routing and streaming for refinement, and the new Omni region settings; refresh the website recognition copy and 0.6.0 download links.
 
 - Add two options to the go-voice refinement page for OpenAI-compatible endpoints. Provider routing sends the only, order and ignore lists (and allow_fallbacks false on request) as the top-level provider object that gateways such as DTMaaS use to choose among the providers of one model; nothing is sent while the lists are empty. A stream switch requests server-sent events for both Chat Completions and Responses and collects the whole text, for services and models that only answer streamed requests; the result is still checked and inserted at once, so it is not faster. Streaming was checked against DeepSeek in both formats; routing was checked only by host tests, not against a live DTMaaS.

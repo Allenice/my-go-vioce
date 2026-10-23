@@ -68,12 +68,14 @@
    ./scripts/release.sh --no-upload  # 只构建并验证
    ```
 
+构建会将 `MACOSX_DEPLOYMENT_TARGET` 和 C/C++ 编译、链接参数固定为 `mygo.json` 中的 `macos.minimumSystemVersion`。CGO 使用较新 SDK 时，仅设置 Info.plist 不够；显式参数还会使 Go 缓存的旧 C/C++ 对象失效。每次调试与正式构建都会运行 `bash scripts/verify-macos-compatibility.sh <app>`，检查 arm64 支持、主应用及 helper 的 plist 声明、实际 Mach-O 最低系统版本。SDK 版本可以高于编译目标。发布脚本还会检查从更新归档解出的应用。这些检查不能代替在最低支持的 macOS 上进行安装与听写测试。
+
 脚本依次：
 
 1. 检查版本、两份 changelog 小节、分支、工作区、tag，以及该 release 是否已公开。还会检查签名身份、公证 profile 和更新密钥；密钥依次取自 `MYGO_UPDATER_PRIVATE_KEY`、钥匙串条目 `go-voice update signing key`、`~/Library/Application Support/mygo/update-keys/go-voice/mygo-update.key`。
 2. 运行 `./scripts/validate.sh`（`--skip-tests` 跳过）。
 3. 运行 `./scripts/build.sh --release`：以 release 模式构建各 helper，再执行 `mygo build -platform darwin/arm64 -o build/release -sign <Developer ID>`。MyGo 由内向外签名嵌套的 `BluetoothHelper`、`SpeechBridge`（使用 `entitlements.plist`）和 `FirmwareHelper`，最后签名应用，均启用 hardened runtime 和安全时间戳。随后它制作 `go-voice <版本> arm64.dmg` 并签名，提交 `notarytool` 等待结果，再把公证票据 staple 到磁盘映像和应用。最后它归档已 staple 的应用并签名归档，为最多三个已公开版本生成差分包，并写出 `update-darwin-arm64.json`。
-4. 验证：`codesign --verify --deep --strict`；应用和每个 helper 的 Developer ID 签发者、团队、hardened runtime 和时间戳；应用与磁盘映像的 `stapler validate` 和 `spctl`；从更新归档解出的应用的签名与 staple。
+4. 验证：macOS 兼容性；`codesign --verify --deep --strict`；应用和每个 helper 的 Developer ID 签发者、团队、hardened runtime 和时间戳；应用与磁盘映像的 `stapler validate` 和 `spctl`；从更新归档解出的应用的兼容性、签名与 staple。
 5. 把 `go-voice-<版本>-macOS-AppleSilicon.dmg`、归档、差分包、`SHA256SUMS.txt`、`notes.md` 和 manifest 复制到 `build/updates/<版本>/`。
 6. 确认后（`--yes` 跳过询问）推送附注 tag `go-voice-v<版本>`，创建不标记为 latest 的草稿 release，先上传其他文件，最后上传 manifest。
 
