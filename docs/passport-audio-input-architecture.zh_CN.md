@@ -50,7 +50,7 @@ TextInjector 在会话开始时捕获前台目标，检查辅助功能与 Secure
 
 ## USB 安装与保护存储
 
-独立 Rust FirmwareHelper 使用固定版本 `espflash`，仅向 `0x10000` 写入随应用提供的镜像，最大 3 MB。任何擦写前，预检必须验证镜像摘要、芯片、Flash 容量、分区布局与永久 Recovery hook；不提供整片擦除、bootloader 或分区表写入路径。
+独立 Rust FirmwareHelper 使用固定版本 `espflash`，仅向 `0x10000` 写入随应用提供的镜像，最大 3 MB。任何擦写前，预检验证镜像摘要、芯片、Flash 容量，并精确匹配两种设备布局之一：原有五分区模板（仍要求永久 Recovery hook），或实测九分区资源布局（保留原厂 bootloader）。随包 manifest 保持模板契约，绝不替换设备分区表；扇区擦除终点不超过 `0x310000`。不提供整片擦除、bootloader 或分区表写入路径。布局细节见 [helper 契约](../gui/firmware-helper/README.zh_CN.md)。
 
 必须保留 `0x356000` 的 `cardid`、`0x700000` 的永久 Recovery，以及上电长按 UP 五秒的 bootloader hook。桌面端应用镜像与小程序合并镜像用于不同安装流程，详见 [Recovery 兼容规范](development/engineering/ble-recovery-compatibility.zh_CN.md)。
 

@@ -21,23 +21,38 @@ fn manifest(firmware: &[u8]) -> Manifest {
     .unwrap()
 }
 fn table() -> Vec<u8> {
-    let m = manifest(&[0xe9]);
+    table_for(&manifest(&[0xe9]).partitions)
+}
+fn table_for(parts: &[Partition]) -> Vec<u8> {
     let mut data = vec![0xff; 4096];
-    for (p, e) in m
-        .partitions
-        .iter()
-        .zip(data.as_chunks_mut::<32>().0.iter_mut())
-    {
+    for (p, e) in parts.iter().zip(data.as_chunks_mut::<32>().0.iter_mut()) {
         e.fill(0);
         e[..4].copy_from_slice(&[0xaa, 0x50, p.kind, p.subtype]);
         e[4..8].copy_from_slice(&p.offset.to_le_bytes());
         e[8..12].copy_from_slice(&p.size.to_le_bytes());
         e[12..12 + p.name.len()].copy_from_slice(p.name.as_bytes());
     }
-    let digest = Md5::digest(&data[..160]);
-    data[160..162].copy_from_slice(&[0xeb, 0xeb]);
-    data[176..192].copy_from_slice(&digest);
+    let end = parts.len() * 32;
+    let digest = Md5::digest(&data[..end]);
+    data[end..end + 2].copy_from_slice(&[0xeb, 0xeb]);
+    data[end + 16..end + 32].copy_from_slice(&digest);
     data
+}
+// Sanitized partition metadata from the connected device's valid MD5 table.
+// No device identity, bootloader, application or resource contents are fixtures.
+fn resource_parts() -> Vec<Partition> {
+    serde_json::from_value(json!([
+        {"name":"nvs","type":1,"subtype":2,"offset":0x9000,"size":0x6000},
+        {"name":"phy_init","type":1,"subtype":1,"offset":0xf000,"size":0x1000},
+        {"name":"factory","type":0,"subtype":0,"offset":0x10000,"size":0x300000},
+        {"name":"imgstore","type":1,"subtype":0x82,"offset":0x310000,"size":0x20000},
+        {"name":"imgframe","type":1,"subtype":0x82,"offset":0x330000,"size":0x26000},
+        {"name":"cardid","type":1,"subtype":2,"offset":0x356000,"size":0x4000},
+        {"name":"imguser","type":1,"subtype":0x82,"offset":0x35a000,"size":0x20000},
+        {"name":"audio","type":1,"subtype":0x82,"offset":0x37a000,"size":0x80000},
+        {"name":"imgava","type":1,"subtype":0x82,"offset":0x3fa000,"size":0x100000}
+    ]))
+    .unwrap()
 }
 #[test]
 fn manifest_accepts_only_safe_images() {
@@ -108,6 +123,128 @@ fn partition_table_requires_md5_and_exact_layout() {
     bad[176..192].copy_from_slice(&digest);
     assert!(parse_partition_table(&bad).is_err());
 }
+#[test]
+fn old_template_devices_still_require_the_recovery_hook() {
+    let parts = parse_partition_table(&table()).unwrap();
+    assert_eq!(device_layout(&parts).unwrap(), DeviceLayout::Template);
+    for bootloader in [
+        vec![],
+        vec![0xff; 0x8000],
+        b"UP held: wrong recovery".to_vec(),
+    ] {
+        assert_eq!(
+            plan_app_write(&parts, &bootloader, 4096).unwrap_err().0,
+            "RECOVERY_MARKER_MISSING"
+        );
+    }
+    let plan = plan_app_write(&parts, MARKER.as_bytes(), 4097).unwrap();
+    assert_eq!(plan.layout, DeviceLayout::Template);
+    assert_eq!(plan.offset, 0x10000);
+    assert_eq!(plan.erase_end, 0x12000);
+}
+
+#[test]
+fn resource_devices_keep_their_vendor_layout_and_bootloader() {
+    let parts = resource_parts();
+    let table = table_for(&parts);
+    assert_eq!(
+        format!("{:x}", Sha256::digest(&table)),
+        "c27caf47475307eda5358c6291eaecf55d68844083909d7b5b1296d85a93d484",
+        "fixture must reproduce the measured partition table without device data"
+    );
+    assert_eq!(parse_partition_table(&table).unwrap(), parts);
+    assert_eq!(
+        device_layout(&parts).unwrap(),
+        DeviceLayout::ResourcePartitions
+    );
+    // The vendor bootloader does not contain our template's marker.
+    let plan = plan_app_write(&parts, b"vendor bootloader", 1_162_848).unwrap();
+    assert_eq!(plan.layout, DeviceLayout::ResourcePartitions);
+    assert_eq!(plan.offset, 0x10000);
+    assert_eq!(plan.erase_end, 0x12c000);
+    // Device compatibility must not change the trusted packaging manifest.
+    let mut packaged = manifest(&[0xe9]);
+    packaged.partitions = parts;
+    assert_eq!(
+        validate_manifest(&packaged, &[0xe9]).unwrap_err().0,
+        "INVALID_LAYOUT"
+    );
+}
+
+#[test]
+fn both_layouts_bound_sector_erasure_before_every_protected_partition() {
+    for parts in [manifest(&[0xe9]).partitions, resource_parts()] {
+        for size in [1, 4095, 4096, 4097, APP_MAX - 1, APP_MAX] {
+            let plan = plan_app_write(&parts, MARKER.as_bytes(), size).unwrap();
+            assert_eq!(plan.offset, 0x10000);
+            assert_eq!(plan.erase_end, 0x10000 + size.div_ceil(4096) * 4096);
+            assert!(plan.erase_end <= 0x310000);
+            assert!(plan.erase_end <= 0x356000);
+            assert!(plan.erase_end <= 0x700000);
+            for part in parts.iter().filter(|p| p.name != "factory") {
+                assert!(plan.erase_end <= part.offset || part.offset + part.size <= plan.offset);
+            }
+        }
+        for size in [0, APP_MAX + 1, u32::MAX - 4095, u32::MAX] {
+            assert_eq!(
+                plan_app_write(&parts, MARKER.as_bytes(), size)
+                    .unwrap_err()
+                    .0,
+                "INVALID_IMAGE"
+            );
+        }
+    }
+}
+
+#[test]
+fn neither_layout_accepts_missing_duplicate_or_modified_partitions() {
+    for parts in [manifest(&[0xe9]).partitions, resource_parts()] {
+        let mutations: [fn(&mut Partition); 6] = [
+            |p| p.name.push('x'),
+            |p| p.kind ^= 1,
+            |p| p.subtype ^= 1,
+            |p| p.offset += 4096,
+            |p| p.size += 4096,
+            |p| p.offset = u32::MAX,
+        ];
+        for index in 0..parts.len() {
+            let mut missing = parts.clone();
+            missing.remove(index);
+            assert!(parse_partition_table(&table_for(&missing)).is_err());
+            let mut duplicate = parts.clone();
+            duplicate.push(parts[index].clone());
+            assert!(parse_partition_table(&table_for(&duplicate)).is_err());
+            for mutate in mutations {
+                let mut bad = parts.clone();
+                mutate(&mut bad[index]);
+                // A valid recalculated MD5 must not authorize an unknown layout.
+                assert!(parse_partition_table(&table_for(&bad)).is_err());
+                assert!(plan_app_write(&bad, MARKER.as_bytes(), 4096).is_err());
+            }
+        }
+        let mut reversed = parts;
+        reversed.reverse();
+        assert!(parse_partition_table(&table_for(&reversed)).is_ok());
+    }
+}
+
+#[test]
+fn resource_layout_still_requires_table_integrity() {
+    let parts = resource_parts();
+    let good = table_for(&parts);
+    let md5_at = parts.len() * 32;
+    for at in [0, 28, md5_at, md5_at + 2, md5_at + 16, md5_at + 32, 4095] {
+        let mut bad = good.clone();
+        bad[at] ^= 1;
+        assert!(parse_partition_table(&bad).is_err());
+    }
+    let mut flagged = good.clone();
+    flagged[28] = 1;
+    let digest = Md5::digest(&flagged[..md5_at]);
+    flagged[md5_at + 16..md5_at + 32].copy_from_slice(&digest);
+    assert!(parse_partition_table(&flagged).is_err());
+}
+
 #[test]
 fn usb_filter_and_paths_reject_untrusted_inputs() {
     assert!(allowed_port("/dev/cu.usbmodem123", 0x303a, 0x1001));

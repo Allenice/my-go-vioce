@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- Support USB application updates on the measured nine-partition AI Passport resource layout while retaining support for the original five-partition template and its Recovery-hook check. Preserve each device's bootloader, table, resources and identity; write only within the existing 3 MB factory slot. Refused preflight checks attempt a normal device reset.
+
 - Refresh the website download buttons, fallback version labels and release feed for go-voice 0.6.1, the macOS 26 compatibility fix.
 
 - Fix go-voice's macOS 26 build compatibility in 0.6.1: pin C/C++ compilation and linking to the declared minimum instead of inheriting the build machine's newer SDK default. Check the actual arm64 Mach-O minimum for the app and all three helpers, including the update archive. Installation and dictation on a macOS 26 Mac still require device acceptance.

@@ -141,48 +141,46 @@ fn install(
     let mut flasher =
         Flasher::connect(connection, false, true, false, Some(Chip::Esp32c3), None)
             .map_err(|_| Failure("CONNECT_FAILED", "Cannot reliably connect to an ESP32-C3"))?;
-    if flasher.chip() != Chip::Esp32c3 {
-        return Err(Failure("CHIP_MISMATCH", "Expected ESP32-C3"));
-    }
-    let info = flasher
-        .security_info()
-        .map_err(|_| Failure("SECURITY_UNAVAILABLE", "Cannot read device security state"))?;
-    validate_security(
-        info.flags,
-        info.flash_crypt_cnt,
-        info.chip_id,
-        flasher.secure_download_mode(),
-    )?;
-    if flasher
-        .flash_detect()
-        .map_err(|_| Failure("FLASH_SIZE_UNAVAILABLE", "Cannot detect flash size"))?
-        != Some(FlashSize::_8Mb)
-    {
-        return Err(Failure(
-            "FLASH_SIZE_MISMATCH",
-            "An explicitly detected 8 MiB flash is required",
-        ));
-    }
-    let actual = parse_partition_table(&read_preflight(&mut flasher, 0x8000, 0x1000)?)?;
-    if actual.len() != manifest.partitions.len()
-        || !actual.iter().all(|p| manifest.partitions.contains(p))
-    {
-        return Err(Failure(
-            "INVALID_LAYOUT",
-            "Device partition table differs from manifest",
-        ));
-    }
-    let bootloader = read_preflight(&mut flasher, 0, 0x8000)?;
-    if !bootloader
-        .windows(MARKER.len())
-        .any(|s| s == MARKER.as_bytes())
-    {
-        return Err(Failure(
-            "RECOVERY_MARKER_MISSING",
-            "Permanent recovery bootloader hook not found",
-        ));
-    }
-    progress(out, Stage::Preflight, 100, "Device safety checks passed")?;
+    let preflight = (|| {
+        if flasher.chip() != Chip::Esp32c3 {
+            return Err(Failure("CHIP_MISMATCH", "Expected ESP32-C3"));
+        }
+        let info = flasher
+            .security_info()
+            .map_err(|_| Failure("SECURITY_UNAVAILABLE", "Cannot read device security state"))?;
+        validate_security(
+            info.flags,
+            info.flash_crypt_cnt,
+            info.chip_id,
+            flasher.secure_download_mode(),
+        )?;
+        if flasher
+            .flash_detect()
+            .map_err(|_| Failure("FLASH_SIZE_UNAVAILABLE", "Cannot detect flash size"))?
+            != Some(FlashSize::_8Mb)
+        {
+            return Err(Failure(
+                "FLASH_SIZE_MISMATCH",
+                "An explicitly detected 8 MiB flash is required",
+            ));
+        }
+        let actual = parse_partition_table(&read_preflight(&mut flasher, 0x8000, 0x1000)?)?;
+        let bootloader = read_preflight(&mut flasher, 0, 0x8000)?;
+        // The manifest describes the packaged app, not a partition table to
+        // install. Match either known device layout and preserve it in place.
+        let plan = plan_app_write(&actual, &bootloader, manifest.app_size)?;
+        progress(out, Stage::Preflight, 100, "Device safety checks passed")?;
+        Ok(plan)
+    })();
+    let plan = match preflight {
+        Ok(plan) => plan,
+        Err(failure) => {
+            // A refused preflight has not written flash. Leave the existing
+            // application bootable instead of stranding the board in ROM mode.
+            let _ = flasher.connection().reset_after(false, Chip::Esp32c3);
+            return Err(failure);
+        }
+    };
     let mut callbacks = Callbacks {
         out,
         total: 0,
@@ -192,7 +190,7 @@ fn install(
     };
     // Sole flash mutation: one factory app segment. espflash pads at most three 0xff bytes.
     flasher
-        .write_bin_to_flash(APP_OFFSET, &firmware, &mut callbacks)
+        .write_bin_to_flash(plan.offset, &firmware, &mut callbacks)
         .map_err(|_| {
             Failure(
                 "FLASH_FAILED",

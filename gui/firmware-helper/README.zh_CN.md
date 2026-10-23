@@ -48,7 +48,24 @@ manifest 所有字段必填，拒绝未知字段；大小、偏移、type、subt
 
 打开端口前校验 manifest、输入大小、ESP magic、固件 SHA-256 和扇区对齐擦除边界。安装时重新枚举端口，仅接受 VID/PID 为 `303a:1001` 的 `/dev/cu.*`。使用 ROM 模式连接，不上传 stub；确认芯片、安全状态和独立检测到的 8 MiB Flash。任何非零或未知安全标志、非零 Flash Encryption 计数器、安全响应缺失或 Secure Download Mode 都会保守拒绝。
 
-预检仅读取 `[0x8000,0x9000)` 的 ESP-IDF 分区表与 `[0,0x8000)` 的 bootloader。分区表必须具有正确 MD5、擦除状态的尾部、零分区 flags，并严格匹配 `partitions.csv` 的五个官方分区。不读取 cardid 内容。通过 `Connection::command(ReadFlashSlow)` 逐次读取 64 字节，避免 espflash 4.6.0 `read_flash_rom` 的累加偏移问题。ROM 命令不支持时返回 `PREFLIGHT_READ_UNAVAILABLE`，不会回退到整包刷写。
+预检仅读取 `[0x8000,0x9000)` 的 ESP-IDF 分区表与 `[0,0x8000)` 的 bootloader。所有分区表都必须具有正确 MD5、擦除状态的尾部和零分区 flags。设备布局按两套精确白名单匹配（条目顺序可不同）：
+
+- `partitions.csv` 中原有的五分区模板。bootloader 仍必须包含长按 UP 进入永久 Recovery 的标记；新增资源分区设备支持不会放宽此项既有检查。
+- 下表所列的实测九分区资源布局。保留设备的原厂 bootloader，因此不要求本模板专用的日志标记或 `recovery` 分区条目。这不代表已验证原厂 UP 键与 Recovery 的行为；不会读取、擦除或写入 `0x700000` 区域。
+
+| 名称 | Type/subtype | 偏移 | 大小 |
+| --- | --- | --- | --- |
+| nvs | 1/2 | `0x9000` | `0x6000` |
+| phy_init | 1/1 | `0xf000` | `0x1000` |
+| factory | 0/0 | `0x10000` | `0x300000` |
+| imgstore | 1/130 | `0x310000` | `0x20000` |
+| imgframe | 1/130 | `0x330000` | `0x26000` |
+| cardid | 1/2 | `0x356000` | `0x4000` |
+| imguser | 1/130 | `0x35a000` | `0x20000` |
+| audio | 1/130 | `0x37a000` | `0x80000` |
+| imgava | 1/130 | `0x3fa000` | `0x100000` |
+
+即使 MD5 正确，缺失、重复、修改或额外增加的分区也会被拒绝。随包 manifest 保持原有五分区固件产物契约，绝不会作为新分区表写入设备。`plan_app_write` 独立限制扇区对齐后的擦除终点不超过 `0x310000`，并检查与每个非应用分区不重叠。不读取 cardid 内容。通过 `Connection::command(ReadFlashSlow)` 逐次读取 64 字节，避免 espflash 4.6.0 `read_flash_rom` 的累加偏移问题。ROM 命令不支持时返回 `PREFLIGHT_READ_UNAVAILABLE`，不会回退到整包刷写。连接后的预检失败会先尝试正常硬复位，再返回原始错误；若复位不可用，需要给设备重新上电。
 
 唯一写操作是 `Flasher::write_bin_to_flash(0x10000, app, callbacks)`，开启验证、关闭跳过。其设备端 `FlashMd5` 比对在复位前完成，由 `ProgressCallbacks` 报告验证与复位阶段。最多填充三个 `0xff` 字节，扇区擦除范围保持在 factory 内。库结束 ROM 写入并执行硬复位，只有成功返回后才发送 complete。没有整片擦除、分区表写入、bootloader 写入或设备初始化操作。
 

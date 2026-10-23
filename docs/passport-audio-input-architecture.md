@@ -50,7 +50,7 @@ TextInjector captures the foreground target at session start. It respects Access
 
 ## USB installation and protected storage
 
-The separate Rust FirmwareHelper uses pinned `espflash` and writes only the bundled application at `0x10000`, up to 3 MB. Preflight verifies image digest, chip, flash capacity, partition layout and the permanent-Recovery hook before any erase/write. It has no erase-all, bootloader or partition-table write path.
+The separate Rust FirmwareHelper uses pinned `espflash` and writes only the bundled application at `0x10000`, up to 3 MB. Preflight verifies image digest, chip, flash capacity and either of two exact device layouts before any erase/write: the original five-partition template (still requiring its permanent-Recovery hook), or the measured nine-partition resource layout (preserving its vendor bootloader). The packaged manifest keeps the template contract; the device table is never replaced. Sector erasure ends no later than `0x310000`. There is no erase-all, bootloader or partition-table write path. See the [helper contract](../gui/firmware-helper/README.md) for layout details.
 
 `cardid` at `0x356000`, permanent Recovery at `0x700000`, and the five-second UP-key bootloader hook are mandatory. The desktop app-only image and mini-program merged image serve different installation paths; see [Recovery compatibility](development/engineering/ble-recovery-compatibility.md).
 

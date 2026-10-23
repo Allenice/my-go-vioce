@@ -2,7 +2,15 @@
 
 # Implementation and acceptance record
 
-Recorded validation date: 2026-10-19. The results below describe the tested implementation and package. USB device checks cover read-only Serial/JTAG enumeration; desktop installer preflight, writing and reset remain unverified. These historical results do not replace validation of a new release build.
+Latest recorded validation: 2026-10-23. Each dated section describes its tested implementation and package. USB checks now cover enumeration and read-only bootloader/partition diagnostics; installer writes remain unverified. Historical results do not replace validation of a new release build.
+
+## Dual device-layout validation (2026-10-23)
+
+Build: PASS for the Apple Development-signed debug app and its three helpers, all compatible with macOS 26. Host tests: PASS for the GUI gate (20 Bun tests, 15 Rust tests, 6 Swift tests, Go tests/vet, Clippy and package checks) and repository/static host checks. The root complete gate stopped at the missing ESP-IDF 5.5.3 environment; the existing bundled firmware remains 0.2.0 and passed its digest/manifest checks.
+
+Read-only device diagnostics confirmed an ESP32-C3 with 8 MiB flash and a valid nine-entry resource partition table, with no template recovery marker. Only the bootloader and partition-table ranges were read, followed by a normal-reset request; no flash erase/write occurred. The sanitized host fixture reproduces that measured table byte for byte. Regression tests retain the original five-partition layout and its required recovery marker, admit the exact nine-partition layout, reject modified/duplicate/missing entries and invalid MD5/flags, and bound sector erasure for both layouts to the existing factory slot ending at `0x310000`.
+
+Device tests: PASS for enumeration and read-only diagnostics; application writing and device-side checksum verification NOT RUN because the USB device was no longer enumerated when preparing the write test. Unverified: actual installation on both hardware variants, post-write bootloader/table preservation, interrupted-write recovery, and the resource-layout device's vendor UP-key/Recovery behavior. Compatibility is selected by measured layout, not by an assumed board age or model name. Historical acceptance records follow.
 
 ## Omni WebSocket and debug identity validation (2026-10-20)
 

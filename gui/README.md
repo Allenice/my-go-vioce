@@ -37,9 +37,9 @@ The same gate is available from the repository root as `./tools/validate.sh --gu
 
 ## Firmware installation contract
 
-USB installation writes only the bundled application at `0x10000`, with a maximum size of 3 MB. Before writing, the helper must verify the image digest/size, ESP32-C3 identity, 8 MB flash, partition-table integrity and the factory/cardid/recovery layout, plus the permanent-Recovery boot hook marker. Failed preflight must stop before any erase/write. There is no erase-all operation. Bootloader, partition table, device identity (`cardid` at `0x356000`) and permanent Recovery (`0x700000`) must remain intact.
+USB installation writes only the bundled application at `0x10000`, with a maximum size of 3 MB and a sector-rounded erase end no later than `0x310000`. Before writing, the helper verifies the image digest/size, ESP32-C3 identity, 8 MB flash and partition-table integrity. It accepts the original five-partition template with its permanent-Recovery boot hook, or the exact measured nine-partition resource layout with its existing vendor bootloader. The [helper contract](firmware-helper/README.md) lists both profiles; unknown layouts are refused. Failed preflight stops before any erase/write and attempts a normal reset. Bootloader, partition table, all resource partitions, device identity (`cardid` at `0x356000`) and permanent Recovery storage (`0x700000`) remain untouched. There is no erase-all operation.
 
-If installation fails, hold UP while powering on for five seconds to enter permanent Recovery and reinstall using the mini-program. The mini-program/community artifact remains `FoloToy-AI-Passport-full.bin`; the desktop app-only image is not a substitute for it. See the [acceptance record](docs/acceptance.md) for pending integrated and device checks.
+If installation fails, reconnect USB and retry; if the device cannot boot, use its vendor recovery procedure. Template devices retain the five-second UP-key permanent-Recovery path; the resource-layout device's vendor recovery behavior remains unverified. The mini-program/community artifact remains `FoloToy-AI-Passport-full.bin`; the desktop app-only image is not a substitute for it. See the [acceptance record](docs/acceptance.md) for recorded and pending device checks.
 
 ## Runtime and privacy
 

@@ -48,7 +48,24 @@ Manifest fields are mandatory, unknown fields are rejected, and sizes/offsets/ty
 
 Before opening a port, the helper validates the manifest, input size, ESP magic byte, firmware SHA-256 and sector-rounded write boundary. It re-enumerates ports and accepts only `/dev/cu.*` with USB VID/PID `303a:1001`. It connects in ROM mode without uploading a stub and confirms chip, security status and independently detected 8 MiB flash. Unknown/nonzero security flags, any nonzero flash encryption counter, missing security response or secure download mode are refused conservatively.
 
-Preflight reads only `[0x8000,0x9000)` for the ESP-IDF partition table and `[0,0x8000)` for the bootloader marker. The table must have a valid MD5 record, erased trailing bytes, zero partition flags and exactly the five official partitions from `partitions.csv`. No cardid contents are read. The explicit 64-byte `Connection::command(ReadFlashSlow)` loop avoids the cumulative-offset defect in espflash 4.6.0 `read_flash_rom`. Unsupported ROM commands return `PREFLIGHT_READ_UNAVAILABLE`; there is no fallback to a full flash image.
+Preflight reads only `[0x8000,0x9000)` for the ESP-IDF partition table and `[0,0x8000)` for the bootloader. Every table needs a valid MD5 record, erased trailing bytes and zero partition flags. Device layouts are matched against two exact allowlists (entry order may differ):
+
+- The original five-partition template from `partitions.csv`. Its bootloader must still contain the permanent-Recovery UP-key hook marker. Adding support for resource devices does not relax this existing check.
+- The measured nine-partition resource layout below. It keeps the vendor bootloader, so the template-specific log marker and a `recovery` table entry are not required. This does not certify the vendor's UP-key/Recovery behavior. Nothing at `0x700000` is read, erased or written.
+
+| Name | Type/subtype | Offset | Size |
+| --- | --- | --- | --- |
+| nvs | 1/2 | `0x9000` | `0x6000` |
+| phy_init | 1/1 | `0xf000` | `0x1000` |
+| factory | 0/0 | `0x10000` | `0x300000` |
+| imgstore | 1/130 | `0x310000` | `0x20000` |
+| imgframe | 1/130 | `0x330000` | `0x26000` |
+| cardid | 1/2 | `0x356000` | `0x4000` |
+| imguser | 1/130 | `0x35a000` | `0x20000` |
+| audio | 1/130 | `0x37a000` | `0x80000` |
+| imgava | 1/130 | `0x3fa000` | `0x100000` |
+
+Missing, duplicate, modified or additional partitions are refused, even with a valid MD5. The packaged manifest remains the original five-partition artifact contract; it is never written to the device as a new table. `plan_app_write` separately bounds the sector-rounded erase end to `0x310000` and checks non-overlap with every non-application partition. No cardid contents are read. The explicit 64-byte `Connection::command(ReadFlashSlow)` loop avoids the cumulative-offset defect in espflash 4.6.0 `read_flash_rom`. Unsupported ROM commands return `PREFLIGHT_READ_UNAVAILABLE`; there is no fallback to a full flash image. A preflight failure after connection requests a normal hard reset before returning its original error; if reset is unavailable, power-cycle the device.
 
 The sole mutation is `Flasher::write_bin_to_flash(0x10000, app, callbacks)` with verification enabled and skip disabled. Its `FlashMd5` comparison runs on device before reset, and `ProgressCallbacks` reports verification and restart stages. Padding is at most three `0xff` bytes; sector erasure stays inside factory. The library finalizes the ROM write and performs a hard reset; completion is sent only after it returns successfully. No erase-all, partition-table write, bootloader write, or provisioning action exists.
 

@@ -180,34 +180,121 @@ fn layout_error() -> Failure {
         "Partition layout does not match the supported Go Voice AI Passport layout",
     )
 }
+type PartitionSpec = (&'static str, u8, u8, u32, u32);
+
+const TEMPLATE_PARTITIONS: &[PartitionSpec] = &[
+    ("nvs", 1, 2, 0x9000, 0x6000),
+    ("phy_init", 1, 1, 0xf000, 0x1000),
+    ("factory", 0, 0, APP_OFFSET, APP_MAX),
+    ("cardid", 1, 2, 0x356000, 0x4000),
+    ("recovery", 0, 0x20, 0x700000, 0x100000),
+];
+// Measured on the user's ESP32-C3 / 8 MiB device. These resources belong to
+// the device and are never replaced by the template's partition table.
+const RESOURCE_PARTITIONS: &[PartitionSpec] = &[
+    ("nvs", 1, 2, 0x9000, 0x6000),
+    ("phy_init", 1, 1, 0xf000, 0x1000),
+    ("factory", 0, 0, APP_OFFSET, APP_MAX),
+    ("imgstore", 1, 0x82, 0x310000, 0x20000),
+    ("imgframe", 1, 0x82, 0x330000, 0x26000),
+    ("cardid", 1, 2, 0x356000, 0x4000),
+    ("imguser", 1, 0x82, 0x35a000, 0x20000),
+    ("audio", 1, 0x82, 0x37a000, 0x80000),
+    ("imgava", 1, 0x82, 0x3fa000, 0x100000),
+];
+
+fn matches_partitions(parts: &[Partition], required: &[PartitionSpec]) -> bool {
+    parts.len() == required.len()
+        && required.iter().all(|&(name, kind, subtype, offset, size)| {
+            parts
+                .iter()
+                .filter(|p| {
+                    p.name == name
+                        && p.kind == kind
+                        && p.subtype == subtype
+                        && p.offset == offset
+                        && p.size == size
+                })
+                .count()
+                == 1
+        })
+}
+
+// The packaged manifest remains the strict five-partition template contract.
 pub fn validate_partitions(parts: &[Partition]) -> Result<()> {
-    let required = [
-        ("nvs", 1, 2, 0x9000, 0x6000),
-        ("phy_init", 1, 1, 0xf000, 0x1000),
-        ("factory", 0, 0, APP_OFFSET, APP_MAX),
-        ("cardid", 1, 2, 0x356000, 0x4000),
-        ("recovery", 0, 0x20, 0x700000, 0x100000),
-    ];
-    if parts.len() != required.len() {
-        return Err(layout_error());
+    if matches_partitions(parts, TEMPLATE_PARTITIONS) {
+        Ok(())
+    } else {
+        Err(layout_error())
     }
-    for (name, kind, subtype, offset, size) in required {
-        if parts
-            .iter()
-            .filter(|p| {
-                p.name == name
-                    && p.kind == kind
-                    && p.subtype == subtype
-                    && p.offset == offset
-                    && p.size == size
-            })
-            .count()
-            != 1
-        {
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeviceLayout {
+    Template,
+    ResourcePartitions,
+}
+
+pub fn device_layout(parts: &[Partition]) -> Result<DeviceLayout> {
+    if matches_partitions(parts, TEMPLATE_PARTITIONS) {
+        Ok(DeviceLayout::Template)
+    } else if matches_partitions(parts, RESOURCE_PARTITIONS) {
+        Ok(DeviceLayout::ResourcePartitions)
+    } else {
+        Err(layout_error())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppWritePlan {
+    pub offset: u32,
+    pub erase_end: u32,
+    pub layout: DeviceLayout,
+}
+
+/// Approves only an app write wholly within the existing factory partition.
+/// Template devices retain their recovery-marker gate. The measured resource
+/// layout uses its existing vendor bootloader, not the template hook; preserving
+/// that bootloader does not certify its UP-key or Recovery implementation.
+pub fn plan_app_write(
+    parts: &[Partition],
+    bootloader: &[u8],
+    app_size: u32,
+) -> Result<AppWritePlan> {
+    let layout = device_layout(parts)?;
+    if layout == DeviceLayout::Template
+        && !bootloader
+            .windows(MARKER.len())
+            .any(|s| s == MARKER.as_bytes())
+    {
+        return Err(Failure(
+            "RECOVERY_MARKER_MISSING",
+            "Permanent recovery bootloader hook not found",
+        ));
+    }
+    let erase_end = app_size
+        .checked_add(4095)
+        .map(|n| n & !4095)
+        .and_then(|n| APP_OFFSET.checked_add(n))
+        .filter(|&end| app_size != 0 && app_size <= APP_MAX && end <= APP_OFFSET + APP_MAX)
+        .ok_or(Failure(
+            "INVALID_IMAGE",
+            "Application erase range exceeds factory",
+        ))?;
+    for part in parts.iter().filter(|p| p.name != "factory") {
+        let end = part
+            .offset
+            .checked_add(part.size)
+            .ok_or_else(layout_error)?;
+        if part.offset < erase_end && APP_OFFSET < end {
             return Err(layout_error());
         }
     }
-    Ok(())
+    Ok(AppWritePlan {
+        offset: APP_OFFSET,
+        erase_end,
+        layout,
+    })
 }
 pub fn validate_manifest(manifest: &Manifest, firmware: &[u8]) -> Result<()> {
     let m = manifest;
@@ -268,7 +355,7 @@ pub fn parse_partition_table(data: &[u8]) -> Result<Vec<Partition>> {
             {
                 return Err(layout_error());
             }
-            validate_partitions(&parts)?;
+            device_layout(&parts)?;
             return Ok(parts);
         }
         if entry[..2] != [0xaa, 0x50] || entry[28..32] != [0; 4] {

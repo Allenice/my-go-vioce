@@ -249,7 +249,7 @@ func ErrorLabel(code string) string {
 	case "PREFLIGHT_READ_UNAVAILABLE", "UNSAFE_READ":
 		return "设备 ROM 不支持所需的只读安全检查，未执行写入。"
 	case "FLASH_FAILED", "VERIFICATION_UNAVAILABLE":
-		return "写入、设备端校验或复位未完成；请先使用永久 Recovery 恢复设备。"
+		return "写入、设备端校验或复位未完成；请重新连接 USB 后重试，无法启动时使用设备原厂恢复方式。"
 	case "OUTPUT_FAILED":
 		return "安装助手通信中断，请重启应用后检查设备状态。"
 	default:

@@ -37,9 +37,9 @@ cd gui
 
 ## 固件安装契约
 
-USB 安装只向 `0x10000` 写入包内应用，最大 3 MB。写入前 helper 必须验证镜像摘要/大小、ESP32-C3 身份、8 MB Flash、分区表完整性和 factory/cardid/recovery 布局，以及永久 Recovery 启动钩子标记。预检失败必须在任何擦除/写入前停止。不提供 erase-all 操作。必须保留 bootloader、分区表、设备身份（`cardid` 位于 `0x356000`）与永久 Recovery（`0x700000`）。
+USB 安装只向 `0x10000` 写入包内应用，最大 3 MB，扇区对齐后的擦除终点不超过 `0x310000`。写入前 helper 验证镜像摘要/大小、ESP32-C3 身份、8 MB Flash 与分区表完整性。支持带永久 Recovery 启动钩子的原有五分区模板，以及保留原厂 bootloader 的实测九分区资源布局。[helper 契约](firmware-helper/README.zh_CN.md)列出两套配置，未知布局会被拒绝。预检失败在任何擦除/写入前停止，并尝试正常复位。bootloader、分区表、所有资源分区、设备身份（`cardid` 位于 `0x356000`）和永久 Recovery 存储区（`0x700000`）均保持原样。不提供 erase-all 操作。
 
-安装失败时，按住 UP 上电五秒进入永久 Recovery，使用小程序重新安装。小程序/社区产物仍为 `FoloToy-AI-Passport-full.bin`；桌面 app-only 镜像不能替代它。待完成的集成与真机检查见[验收记录](docs/acceptance.zh_CN.md)。
+安装失败时重新连接 USB 后重试；设备无法启动时使用其原厂恢复流程。模板设备仍保留长按 UP 五秒进入永久 Recovery 的路径；资源布局设备的原厂恢复行为仍待验证。小程序/社区产物仍为 `FoloToy-AI-Passport-full.bin`，桌面 app-only 镜像不能替代它。已完成及待完成的真机检查见[验收记录](docs/acceptance.zh_CN.md)。
 
 ## 运行与隐私
 
