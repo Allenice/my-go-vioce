@@ -6,6 +6,12 @@
 
 Each `## <version>` section is the release note of one signed `go-voice` release. `scripts/release.sh` requires the section in both language files; the Simplified Chinese section is signed into the update manifest and shown in the in-app update window, because the app interface is Chinese. Write user-visible changes only and keep both sections aligned. See [updates and releases](updates.md).
 
+## 0.6.2
+
+- USB firmware installation now supports two exact device layouts: the original five-partition template with its Recovery boot hook, and the measured nine-partition resource layout that keeps the vendor bootloader, pictures and audio. Only the existing factory application is written; identity, resources and Recovery storage stay in place. A refused preflight check attempts a normal reset.
+
+Install the Apple Silicon DMG on macOS 26 or later and replace the previous go-voice in Applications. Bundled firmware remains 0.2.0. Build and setup instructions are in the [application guide](../README.md). Writing firmware on both hardware layouts remains unverified.
+
 ## 0.6.1
 
 - Fix the macOS deployment target: 0.6.0 declared macOS 26 but its main executable required macOS 27. The main app is now compiled and linked for macOS 26, including its C/C++ dependencies.

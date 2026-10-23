@@ -6,7 +6,7 @@
 
 ## Unreleased
 
-- Support USB application updates on the measured nine-partition AI Passport resource layout while retaining support for the original five-partition template and its Recovery-hook check. Preserve each device's bootloader, table, resources and identity; write only within the existing 3 MB factory slot. Refused preflight checks attempt a normal device reset.
+- Publish go-voice 0.6.2 with USB support for both the original five-partition template and the measured nine-partition resource layout, and refresh the website download buttons, fallback version labels and release feed.
 
 - Refresh the website download buttons, fallback version labels and release feed for go-voice 0.6.1, the macOS 26 compatibility fix.
 
