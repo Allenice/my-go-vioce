@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- Refresh the website download buttons, fallback version labels and release feed for go-voice 0.6.1, the macOS 26 compatibility fix.
+
 - Fix go-voice's macOS 26 build compatibility in 0.6.1: pin C/C++ compilation and linking to the declared minimum instead of inheriting the build machine's newer SDK default. Check the actual arm64 Mach-O minimum for the app and all three helpers, including the update archive. Installation and dictation on a macOS 26 Mac still require device acceptance.
 
 - Prepare `go-voice` 0.6.0 with Doubao streaming recognition, editor-style structured refinement, saved-key hints, provider routing and streaming for refinement, and the new Omni region settings; refresh the website recognition copy and 0.6.0 download links.
