@@ -2,7 +2,22 @@
 
 # Implementation and acceptance record
 
-Latest recorded validation: 2026-10-23. Each dated section describes its tested implementation and package. USB checks now cover enumeration and read-only bootloader/partition diagnostics; installer writes remain unverified. Historical results do not replace validation of a new release build.
+Latest recorded validation: 2026-10-26. Each dated section describes its tested implementation and package. USB checks now cover enumeration and read-only bootloader/partition diagnostics; installer writes remain unverified. Historical results do not replace validation of a new release build.
+
+## Linux desktop host and shared UI validation (2026-10-26)
+
+Build: PASS for the Ubuntu 24.04 amd64 preview package from `scripts/build-linux.sh`, installed with `install.sh` into `~/.local/share/go-voice` and launched from the generated desktop entry. Host tests: PASS for `./tools/validate.sh --static` and `./tools/validate.sh --gui` (Go tests, vet, gofmt, packaged dictionaries and archive checks). Device tests: PASS for one Linux/X11 desktop: BlueZ connection to the Go Voice badge, whole-recording recognition through Alipay MaaS and insertion into Ghostty. Refinement was configured against an OpenAI-compatible endpoint during that run; its output quality was not checked separately. Terminal insertion was also reproduced against a scratch terminal window that ignored Ctrl+V and accepted Ctrl+Shift+V. Unverified: Wayland terminals, terminal classes other than Ghostty, other Linux desktops, and updating an installed package.
+
+The refinement page now pins its actions above the status pill, the Linux Apple-model notice is folded into the engine help, General offers login startup through an XDG autostart entry and names the running version and directory, and a second launch reopens the running window. These changes live in shared UI and application code, so they also change the macOS interface; only the Linux host was run for them.
+
+### macOS checks pending
+
+- Build and host tests: run `./tools/validate.sh --gui` on a Mac (Go tests, Swift and Rust helpers, Bun packaging, signature checks). The gate in this record ran on Linux only.
+- Refinement page: the pinned action row (delete credential, test connection, save to keychain, save) must sit above the status pill, stay reachable in the default 1120×840 window, and not cover the last card when scrolled to the end.
+- General page: the new running-version card must show the bundled version and executable directory, while the login switch, Login Items notice and approval row keep their previous behavior.
+- A second launch while the window is hidden must show and focus the running window.
+- Dictation, Keychain, BLE and the signed helpers are untouched by these commits and still need their normal release checks.
+
 
 ## Dual device-layout validation (2026-10-23)
 
