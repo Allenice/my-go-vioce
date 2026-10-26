@@ -316,9 +316,13 @@ func (v *View) connectionCard(c *ui.Context) {
 func (v *View) pane(c *ui.Context) {
 	bar := c.TitleBar()
 	page := pages[min(max(v.Page, 0), len(pages)-1)]
+	bottom := float32(72)
+	if v.Page == 3 {
+		bottom = 132
+	}
 	ui.Box(c).Grow(1).MinWidth(0).Children(func() {
 		ui.Scroll(c).Fill().ScrollbarInsets(TitleBarHeight, 0, 0).Children(func() {
-			ui.Column(c).Padding(TitleBarHeight+18, 36, 72).AlignItems(ui.Center).Children(func() {
+			ui.Column(c).Padding(TitleBarHeight+18, 36, bottom).AlignItems(ui.Center).Children(func() {
 				ui.Column(c).FillWidth().MaxWidth(820).Gap(28).Children(func() {
 					switch v.Page {
 					case 0:
@@ -354,8 +358,23 @@ func (v *View) pane(c *ui.Context) {
 				ui.Text(c, label).FontSize(11.5).TextColor(colSubtle).SingleLine().MaxWidth(220)
 			})
 		})
+		if v.Page == 3 || v.Snapshot.Status != "" {
+			fade := float32(64)
+			if v.Page == 3 {
+				fade = 132
+			}
+			ui.Box(c).Absolute().Bottom(0).Left(0).Right(0).Height(fade).PassThrough().Material(glass.ScrollEdge{Bottom: true})
+		}
+		if v.Page == 3 {
+			// The refinement form is taller than the window, so its actions stay
+			// pinned above the status pill instead of ending below the fold.
+			ui.Row(c).Attach(ui.AnchorBottom, ui.AnchorBottom).Bottom(64).Height(44).Width(848).
+				PaddingX(14).Gap(12).Radius(22).Background(colCard).Border(1, colHairline).
+				Shadow(0, 8, 24, 0, ui.RGBA(0, 0, 0, 0.45)).Children(func() {
+				v.refinementActions(c)
+			})
+		}
 		if v.Snapshot.Status != "" {
-			ui.Box(c).Absolute().Bottom(0).Left(0).Right(0).Height(64).PassThrough().Material(glass.ScrollEdge{Bottom: true})
 			ui.Row(c).Attach(ui.AnchorBottom, ui.AnchorBottom).Bottom(16).Height(32).PaddingX(14).Gap(8).Radius(16).
 				Material(glass.Glass{}).PassThrough().Children(func() {
 				ui.Text(c, v.Snapshot.Status).FontSize(12).TextColor(colSubtle).SingleLine().MaxWidth(520)
@@ -1117,14 +1136,11 @@ func asrHelp(c asr.Config) string {
 }
 
 func (v *View) refinement(c *ui.Context) {
-	if runtime.GOOS == "linux" {
-		notice(c, "linux-refinement", "Linux 不支持 Apple 本地润色。可关闭润色，或明确选择并配置 OpenAI 兼容接口；只发送文字和相关词库，不发送音频。", false)
-	}
 	group(c, "engine", "润色引擎", nil, func() {
 		row(c, "engine", func() {
 			help, labels := "默认 Apple 本地模型；失败不会自动切换到远端。", engineLabels
 			if runtime.GOOS == "linux" {
-				help, labels = "默认关闭；仅在明确配置后使用远端润色。", []string{"关闭", "OpenAI 兼容接口"}
+				help, labels = "没有 Apple 本地模型：可关闭，或明确选择 OpenAI 兼容接口；远端只收文字与词库，不收音频。", []string{"关闭", "OpenAI 兼容接口"}
 			}
 			label(c, "引擎", help)
 			if i := indexOf(engines, v.Config.Engine); segmented(c, "engine-seg", &i, labels) {
@@ -1154,8 +1170,17 @@ func (v *View) refinement(c *ui.Context) {
 		notice(c, "remote", "显式远端模式：最终转写和词库将发送到所填 HTTPS 端点；音频不发送。", true)
 		v.remoteSettings(c)
 	}
-	ui.Row(c).Gap(12).Wrap().GapY(12).Children(func() {
-		if remote {
+	s := v.Snapshot
+	if s.Feedback != "" && !s.Testing && s.FeedbackFor == v.Config {
+		feedback(c, s.Feedback, s.FeedbackOK)
+	}
+}
+
+// refinementActions are the refinement page's actions. They are pinned by the
+// pane so they stay reachable while the form scrolls.
+func (v *View) refinementActions(c *ui.Context) {
+	ui.Row(c).FillWidth().Gap(12).Children(func() {
+		if v.Config.Engine == "remote" {
 			if pill(c, "delete-cred", "删除凭据", pillDanger, nil, nil, false) {
 				v.Actions.DeleteCredential(v.Config.Endpoint)
 			}
@@ -1175,10 +1200,6 @@ func (v *View) refinement(c *ui.Context) {
 			v.clearSecret()
 		}
 	})
-	s := v.Snapshot
-	if s.Feedback != "" && !s.Testing && s.FeedbackFor == v.Config {
-		feedback(c, s.Feedback, s.FeedbackOK)
-	}
 }
 
 // remoteSettings holds the fields that only an OpenAI-compatible endpoint

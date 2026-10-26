@@ -96,6 +96,34 @@ func newTester(v *View) *ui.Tester {
 	return tt
 }
 
+// clickInPane clicks the element showing label after scrolling the content pane
+// until it is on screen. Linux pages carry extra notices, so a page can be
+// taller than the test window and its last row start below the fold.
+func clickInPane(tt *ui.Tester, label string) error {
+	bounds := tt.Image().Bounds()
+	width, height := float32(bounds.Dx()), float32(bounds.Dy())
+	for range 40 {
+		r, ok := tt.Find(label)
+		if !ok {
+			return fmt.Errorf("ui: no element shows %q", label)
+		}
+		if r.H > 0 && r.Y >= 0 && r.Y+r.H <= height {
+			tt.ClickAt(r.X+r.W/2, r.Y+r.H/2)
+			return nil
+		}
+		dy := float32(120)
+		switch {
+		case r.Y >= height:
+			dy = min(r.Y-height+24, 320)
+		case r.Y < 0:
+			dy = max(r.Y-24, -320)
+		}
+		tt.Scroll(width/2, height/2, 0, dy)
+		tt.Frame()
+	}
+	return fmt.Errorf("ui: %q stayed out of view", label)
+}
+
 func TestDeviceActionsFollowState(t *testing.T) {
 	var rec intents
 	v := testView(&rec)
@@ -193,7 +221,7 @@ func TestRefinementSegmentsUpdateDraft(t *testing.T) {
 	if !tt.HasText("显式远端模式：最终转写和词库将发送到所填 HTTPS 端点；音频不发送。") {
 		t.Fatal("remote disclosure missing")
 	}
-	if err := tt.Click("保存设置"); err != nil || rec.configure != 1 {
+	if err := clickInPane(tt, "保存设置"); err != nil || rec.configure != 1 {
 		t.Fatalf("save: %v", err)
 	}
 }
@@ -207,12 +235,12 @@ func TestRemoteConnectionTest(t *testing.T) {
 	v.Config.Endpoint, v.Config.Model, v.secret = "https://provider.example/v1", "m", "typed"
 	tt.Frame()
 	// The draft on the page is tested, with the typed key, before saving.
-	if err := tt.Click("测试连接"); err != nil || len(rec.tested) != 1 || rec.tested[0].Model != "m" || rec.testKeys[0] != "typed" || rec.configure != 0 {
+	if err := clickInPane(tt, "测试连接"); err != nil || len(rec.tested) != 1 || rec.tested[0].Model != "m" || rec.testKeys[0] != "typed" || rec.configure != 0 {
 		t.Fatalf("test: %v %+v", err, rec)
 	}
 	v.Snapshot.Testing = true
 	tt.Frame()
-	_ = tt.Click("正在测试…")
+	_ = clickInPane(tt, "正在测试…")
 	if len(rec.tested) != 1 || tt.HasText("测试连接") {
 		t.Fatal("a running test started again")
 	}
@@ -236,7 +264,7 @@ func TestSaveSettingsHandsOverTypedKey(t *testing.T) {
 	tt := newTester(v)
 	v.Config.Endpoint, v.secret = "https://provider.example/v1", "typed"
 	tt.Frame()
-	if err := tt.Click("保存设置"); err != nil || rec.configure != 1 || rec.configureKeys[0] != "typed" || v.secret != "" {
+	if err := clickInPane(tt, "保存设置"); err != nil || rec.configure != 1 || rec.configureKeys[0] != "typed" || v.secret != "" {
 		t.Fatalf("save: %v %+v %q", err, rec, v.secret)
 	}
 	v.Snapshot.Feedback, v.Snapshot.FeedbackOK, v.Snapshot.FeedbackFor = "设置已保存，API key 已存入钥匙串。", true, v.Config
@@ -247,7 +275,7 @@ func TestSaveSettingsHandsOverTypedKey(t *testing.T) {
 	// Without an endpoint the typed key stays in the field.
 	v.Config.Endpoint, v.secret = "", "typed"
 	tt.Frame()
-	if err := tt.Click("保存到钥匙串"); err != nil || v.secret != "typed" {
+	if err := clickInPane(tt, "保存到钥匙串"); err != nil || v.secret != "typed" {
 		t.Fatalf("key without endpoint: %v %q", err, v.secret)
 	}
 }
@@ -757,6 +785,30 @@ func TestVocabularyJevTab(t *testing.T) {
 	}
 }
 
+// TestRefinementActionsStayOnScreen pins the page's actions to the pane: the
+// form is taller than the window, so they must not end up below the fold.
+func TestRefinementActionsStayOnScreen(t *testing.T) {
+	for _, engine := range []string{"local", "remote"} {
+		var rec intents
+		v := testView(&rec)
+		v.Page, v.Snapshot.Config.Engine = 3, engine
+		tt := ui.NewTester(v.Draw, 1120, 840) // the window the app opens
+		tt.SetDark(true)
+		tt.SetTitleBar(ui.TitleBar{Height: TitleBarHeight, Left: 78})
+		tt.Frame()
+		labels := []string{"保存设置"}
+		if engine == "remote" {
+			labels = []string{"删除凭据", "测试连接", "保存到钥匙串", "保存设置"}
+		}
+		for _, label := range labels {
+			r, ok := tt.Find(label)
+			if !ok || r.H == 0 || r.Y < TitleBarHeight || r.Y+r.H > 840 {
+				t.Fatalf("%s: %q at %+v ok=%v", engine, label, r, ok)
+			}
+		}
+	}
+}
+
 func TestRefinementStreamAndProviderRoutingDraft(t *testing.T) {
 	var rec intents
 	v := testView(&rec)
@@ -786,7 +838,7 @@ func TestRefinementStreamAndProviderRoutingDraft(t *testing.T) {
 	v.Config.Endpoint, v.Config.Model = "https://provider.example/v1", "m"
 	v.Config.ProviderOrder = "antdigital, bigmodel"
 	tt.Frame()
-	if err := tt.Click("保存设置"); err != nil || rec.configure != 1 {
+	if err := clickInPane(tt, "保存设置"); err != nil || rec.configure != 1 {
 		t.Fatalf("save: %v", err)
 	}
 	if got := rec.configured[0]; !got.Stream || got.ProviderOrder != "antdigital, bigmodel" || !got.ProviderStrict {
