@@ -5,6 +5,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -162,6 +163,9 @@ func TestSidebarNavigatesAndInstallIsGated(t *testing.T) {
 		t.Fatal("install fired before a device was selected")
 	}
 	if !tt.HasText("USB 设备") {
+		if runtime.GOOS == "linux" && tt.HasText("Linux 预览版暂不提供 USB 固件安装。") {
+			return
+		}
 		t.Fatalf("firmware page texts %q", tt.Texts())
 	}
 }
@@ -320,7 +324,11 @@ func TestRecognitionDropdownChoosesOnlineModel(t *testing.T) {
 	v.Page = 2
 	tt := newTester(v)
 	// Local by default: no key, no test, no disclosure.
-	if !tt.HasText("Apple 本地（SpeechAnalyzer）") || tt.HasText("测试连接") || tt.HasText("删除凭据") {
+	localLabel := "Apple 本地（SpeechAnalyzer）"
+	if runtime.GOOS == "linux" {
+		localLabel = "未选择（请选择在线引擎）"
+	}
+	if !tt.HasText(localLabel) || tt.HasText("测试连接") || tt.HasText("删除凭据") {
 		t.Fatalf("local texts %q", tt.Texts())
 	}
 	if err := tt.Click("选择识别引擎"); err != nil {
@@ -380,7 +388,11 @@ func TestRecognitionKeepsKeysAcrossEngineSwitches(t *testing.T) {
 	for _, e := range asrEngines() {
 		labels = append(labels, e.Label)
 	}
-	if fmt.Sprint(labels) != "[Apple 本地（SpeechAnalyzer） 支付宝 MaaS 阿里云百炼 · Omni Realtime（WebSocket） 火山引擎豆包]" {
+	expected := "[Apple 本地（SpeechAnalyzer） 支付宝 MaaS 阿里云百炼 · Omni Realtime（WebSocket） 火山引擎豆包]"
+	if runtime.GOOS == "linux" {
+		expected = "[未选择（请选择在线引擎） 支付宝 MaaS 阿里云百炼 · Omni Realtime（WebSocket） 火山引擎豆包]"
+	}
+	if fmt.Sprint(labels) != expected {
 		t.Fatalf("providers %q", labels)
 	}
 	var rec intents
@@ -442,7 +454,10 @@ func TestRecognitionKeepsKeysAcrossEngineSwitches(t *testing.T) {
 func TestKeyFieldsShowSavedKeys(t *testing.T) {
 	var rec intents
 	v := testView(&rec)
-	const none = "仅保存到 macOS 钥匙串"
+	none := "仅保存到 macOS 钥匙串"
+	if runtime.GOOS == "linux" {
+		none = "仅保存到系统钥匙环"
+	}
 	if got := v.keyPlaceholder("", none); got != none || len(rec.keyChecks) != 0 {
 		t.Fatalf("incomplete account: %q %v", got, rec.keyChecks)
 	}
@@ -610,6 +625,9 @@ func TestSnapshots(t *testing.T) {
 }
 
 func TestFirmwarePageShowsVersionsAndUpdate(t *testing.T) {
+	if runtime.GOOS == "linux" {
+		t.Skip("USB installer is macOS-only; Linux availability is covered separately")
+	}
 	var rec intents
 	v := testView(&rec)
 	v.Page = 4
@@ -633,6 +651,9 @@ func TestFirmwarePageShowsVersionsAndUpdate(t *testing.T) {
 }
 
 func TestFirmwareErrorShowsCodeAndStage(t *testing.T) {
+	if runtime.GOOS == "linux" {
+		t.Skip("USB installer is macOS-only")
+	}
 	var rec intents
 	v := testView(&rec)
 	v.Page = 4
@@ -644,6 +665,9 @@ func TestFirmwareErrorShowsCodeAndStage(t *testing.T) {
 }
 
 func TestPermissionsOnboardingActions(t *testing.T) {
+	if runtime.GOOS == "linux" {
+		t.Skip("TCC onboarding is macOS-only; Linux diagnostics are covered separately")
+	}
 	var rec intents
 	v := testView(&rec)
 	v.Snapshot.Permissions = permission.Set{permission.Bluetooth: permission.Denied, permission.Speech: permission.Undetermined, permission.Accessibility: permission.Granted}
@@ -669,6 +693,9 @@ func TestPermissionsOnboardingActions(t *testing.T) {
 }
 
 func TestGeneralPageTogglesOpenAtLogin(t *testing.T) {
+	if runtime.GOOS == "linux" {
+		t.Skip("Login Items UI is macOS-only")
+	}
 	var rec intents
 	v := testView(&rec)
 	tt := newTester(v)

@@ -2,6 +2,9 @@
 
 # Go Voice（my-ai-audio）
 
+Linux 桌面端已提供实验性源码构建，见 [Ubuntu/Debian 构建与验证指南](gui/docs/linux.zh_CN.md)；仍需在 Linux 上验证真实蓝牙与桌面交互。
+
+
 AI 驱动的 macOS 语音输入。AI Passport 固件和基于 MyGo 的 `go-voice` macOS 桌面端现已在同一仓库落地，并通过本机固件构建、GUI 构建和 host tests。
 
 AI Passport / ESP32-C3 工牌是唯一音频采集端，连续把 ES8311 音频经 IMA-ADPCM / BLE 送到 Mac；基于 MyGo 构建的 `go-voice` 应用调用系统端侧 ASR，注入动态词库，使用 Apple 本地模型或用户明确选择的 OpenAI-compatible 服务润色，再把文字插入当前输入框。

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -44,6 +45,22 @@ func (v *View) permissionBanner(c *ui.Context, missing []permission.Name) {
 }
 
 func (v *View) permissions(c *ui.Context) {
+	if runtime.GOOS == "linux" {
+		notice(c, "linux-permissions", "请在系统设置中打开蓝牙，并启动系统钥匙环。X11 使用 xclip 和 xdotool 自动粘贴；Wayland 使用 wl-copy 复制文字后手动粘贴。", false)
+		for _, n := range []permission.Name{permission.Bluetooth, permission.Accessibility} {
+			row(c, string(n), func() {
+				title := "蓝牙服务"
+				if n == permission.Accessibility {
+					title = "剪贴板工具"
+				}
+				label(c, title, pickText(v.Snapshot.Permissions[n] == permission.Granted, "可用", "尚未就绪，请检查系统设置或安装依赖"))
+			})
+		}
+		if pill(c, "linux-recheck", "重新检查", pillPrimary, nil, nil, false) {
+			v.Actions.OpenSettings(permission.Bluetooth)
+		}
+		return
+	}
 	s := v.Snapshot.Permissions
 	missing := s.Missing()
 	required := 0

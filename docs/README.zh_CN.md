@@ -6,6 +6,7 @@ Go Voice 由 AI Passport 固件和基于 MyGo 的 macOS 语音输入应用组成
 
 ## 使用与构建
 
+- [Linux 桌面预览版](../gui/docs/linux.zh_CN.md)：Ubuntu/Debian 依赖、打包与真机验证。
 - [macOS 应用](../gui/README.zh_CN.md)：环境要求、构建命令、权限、词库、润色和隐私。
 - [固件](go-voice-firmware.zh_CN.md)：来源归属、Go Voice 标识、显示资源、保护存储和已记录的验证结果。
 - [环境搭建](development/engineering/environment-setup.zh_CN.md)：ESP-IDF 5.5.3 安装与配置。

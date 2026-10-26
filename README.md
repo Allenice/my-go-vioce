@@ -2,6 +2,9 @@
 
 # Go Voice (my-ai-audio)
 
+Linux desktop support is available as an experimental source build. See the [Ubuntu/Debian build and verification guide](gui/docs/linux.md); real Linux BLE and desktop testing is still required.
+
+
 AI-powered macOS voice input. The AI Passport firmware and MyGo-based `go-voice` macOS desktop application are now implemented in one repository and pass local firmware builds, GUI builds, and host tests.
 
 The AI Passport / ESP32-C3 badge is the sole audio capture device. It continuously streams ES8311 audio to the Mac over IMA-ADPCM / BLE; the `go-voice` app, built with MyGo, runs system on-device ASR, injects dynamic vocabulary, refines text with Apple local models or an explicitly selected OpenAI-compatible service, and inserts it into the active input field.

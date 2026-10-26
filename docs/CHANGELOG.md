@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- Add an experimental Ubuntu/Debian desktop build using BlueZ D-Bus, the existing Go audio/online ASR/vocabulary/refinement pipeline, Secret Service credentials, X11 paste and Wayland clipboard output. Bundle Linux helpers, dictionaries and a user installer without Swift, Rust or ESP-IDF. Apple local models and USB firmware installation remain unavailable on Linux; real Linux desktop and badge tests are pending.
+
 - Publish go-voice 0.6.2 with USB support for both the original five-partition template and the measured nine-partition resource layout, and refresh the website download buttons, fallback version labels and release feed.
 
 - Refresh the website download buttons, fallback version labels and release feed for go-voice 0.6.1, the macOS 26 compatibility fix.

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -123,6 +124,9 @@ func dictionaryPaths() ([]string, error) {
 		return nil, err
 	}
 	dir := filepath.Join(filepath.Dir(exe), "..", "Resources", "jieba")
+	if runtime.GOOS == "linux" && filepath.Base(exe) == "go-voice" {
+		return pathsIn(filepath.Join(filepath.Dir(exe), "resources", "jieba"))
+	}
 	// A packaged app must use its own resources, never the build machine's
 	// module cache. Source builds and unit tests use the pinned Go module.
 	if filepath.Base(filepath.Dir(exe)) != "MacOS" {

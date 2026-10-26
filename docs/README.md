@@ -6,6 +6,7 @@ Go Voice combines AI Passport firmware with a MyGo-based macOS voice-input appli
 
 ## Use and build
 
+- [Linux desktop preview](../gui/docs/linux.md): Ubuntu/Debian dependencies, packaging and hardware verification.
 - [macOS application](../gui/README.md): prerequisites, build commands, permissions, vocabulary, refinement, and privacy.
 - [Firmware](go-voice-firmware.md): source attribution, Go Voice identity, display assets, protected storage, and recorded validation.
 - [Environment setup](development/engineering/environment-setup.md): ESP-IDF 5.5.3 setup.

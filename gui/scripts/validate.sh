@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
+if [[ "$(uname -s)" == Linux ]]; then exec ./scripts/validate-linux.sh; fi
 bun_bin="${WAKU_BUN_EXECUTABLE:-bun}"
 "$bun_bin" test scripts/package-firmware.test.mjs scripts/stage-debug-project.test.mjs scripts/verify-macos-compatibility.test.mjs
 cargo fmt --manifest-path firmware-helper/Cargo.toml --all -- --check

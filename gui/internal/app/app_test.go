@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -523,8 +524,15 @@ func TestStartDoesNotRewriteVocabulary(t *testing.T) {
 	if err != nil || string(after) != string(before) {
 		t.Fatalf("vocabulary rewritten: %v %s", err, after)
 	}
-	if !a.coordinator.Active || len(a.terms) != 1 || a.terms[0] != "伊智" {
+	if len(a.terms) != 1 || a.terms[0] != "伊智" {
 		t.Fatalf("start %+v %v", a.coordinator, a.terms)
+	}
+	if runtime.GOOS == "linux" {
+		if a.coordinator.Active || a.online != nil || !strings.Contains(a.coordinator.Status, "在线引擎") {
+			t.Fatal("Linux must wait for explicit provider selection")
+		}
+	} else if !a.coordinator.Active {
+		t.Fatal("local session did not start")
 	}
 }
 

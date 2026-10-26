@@ -1,6 +1,9 @@
 package ui
 
-import "github.com/egoist/mygo/ui"
+import (
+	"github.com/egoist/mygo/ui"
+	"runtime"
+)
 
 // GeneralPage is the index of the app's own settings in pages.
 const GeneralPage = 6
@@ -8,6 +11,10 @@ const GeneralPage = 6
 // general holds how go-voice itself behaves; the system's login items are the
 // truth for opening at login, so the switch shows what they report.
 func (v *View) general(c *ui.Context) {
+	if runtime.GOOS == "linux" {
+		notice(c, "linux-general", "Linux 预览版：可在桌面的“启动应用程序”中添加 go-voice。当前版本请使用构建产物中的启动脚本运行，通过重新构建更新。", false)
+		return
+	}
 	s := v.Snapshot
 	group(c, "startup", "启动", nil, func() {
 		row(c, "open-at-login", func() {

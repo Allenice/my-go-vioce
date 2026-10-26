@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- 新增实验性 Ubuntu/Debian 桌面构建：通过 BlueZ D-Bus 接收音频，复用 Go 解码、在线识别、词库和润色，使用系统钥匙环保存凭据，支持 X11 粘贴与 Wayland 剪贴板输出。打包 Linux helper、词典和用户安装脚本，不依赖 Swift、Rust 或 ESP-IDF。Linux 暂不提供 Apple 本地模型及 USB 固件安装，真实 Linux 桌面和工牌验证待完成。
+
 - 发布 go-voice 0.6.2：USB 安装同时支持原有五分区模板与实测九分区资源布局；同步网站下载按钮、备用版本标签与发布数据。
 
 - 将网站下载按钮、备用版本标签与发布数据同步到 go-voice 0.6.1，提供 macOS 26 兼容性修复版本。

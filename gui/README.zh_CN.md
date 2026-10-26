@@ -2,6 +2,9 @@
 
 # go-voice macOS 应用
 
+实验性 Linux 桌面端请使用 [Linux 指南](docs/linux.zh_CN.md)。Linux 构建不需要下文的 macOS 工具链和固件暂存流程。
+
+
 `go-voice` 是 Go Voice 的 macOS 26+ Apple Silicon 桌面宿主，基于 MyGo 构建。独立 Go module 为 `github.com/vfasky/my-ai-audio/gui`，正式版 bundle identifier 为 `yz.sh.mygo-go-voice`。本地构建使用 `go-voice-debug.app` 和 `yz.sh.mygo-go-voice.debug`，三个 helper 的标识也追加 `.debug`，以分离开发版与正式版的 TCC 权限记录。
 
 `go-voice` 原生 UI 提供设备与本次语音、词库、语音识别、AI 润色和固件安装五页，以及权限引导页；侧边栏另有“应用”分区，内含“通用”页。界面固定为暗色，遵循 macOS 26 布局：内嵌红绿灯的悬浮 Liquid Glass 侧边栏、位于柔和滚动边缘上的工具栏，以及分组内嵌区块。石墨卡片、黑色内嵌井、白色主胶囊按钮和仅用于实时音频的橙色强调色均参照设计稿；FoloToy AI Passport 声波以中心为最新峰值向两侧镜像展开，空闲时显示暗色圆点；识别、润色和插字时同一面板显示橙色脉冲。扫描时不会自动选择设备，明确选择后的 peripheral UUID 会持久化用于重连。设备页显示固件、握手状态、波形、RMS/peak、时长、实时转写、最终 ASR 原文、润色结果和帧诊断。不保存、不回放音频。

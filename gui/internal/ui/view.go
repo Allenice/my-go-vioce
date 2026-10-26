@@ -3,6 +3,7 @@ package ui
 
 import (
 	"fmt"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -374,6 +375,9 @@ const (
 // modelStatus says in the interface's language how far SpeechBridge got in
 // preparing the zh-CN speech model, from the messages of its warmup.
 func modelStatus(message string) (string, modelState) {
+	if message == "Linux 文字输出已就绪" {
+		return message, modelReady
+	}
 	switch m := strings.ToLower(message); {
 	case strings.Contains(m, "unavailable"):
 		return "中文语音模型不可用", modelFailed
@@ -590,6 +594,10 @@ func kv(c *ui.Context, key, value string) {
 }
 
 func (v *View) firmware(c *ui.Context) {
+	if runtime.GOOS == "linux" {
+		notice(c, "linux-firmware", "Linux 预览版暂不提供 USB 固件安装。已安装 Go Voice 固件的工牌可以直接通过蓝牙连接。", false)
+		return
+	}
 	s := v.Snapshot.Install
 	tone := colMuted
 	switch {
@@ -832,7 +840,11 @@ func (v *View) recognition(c *ui.Context) {
 	})
 	s := v.Snapshot
 	if !v.ASR.Online() {
-		notice(c, "asr-local", "本地识别不联网，需要“语音识别”权限和已下载的中文语音模型；词库 Top 100 作为识别提示。", false)
+		if runtime.GOOS == "linux" {
+			notice(c, "asr-local", "Linux 暂不提供本地识别。请选择在线引擎、填写 API key 并保存；之后工牌音频会发送到你选择的服务商。", true)
+		} else {
+			notice(c, "asr-local", "本地识别不联网，需要“语音识别”权限和已下载的中文语音模型；词库 Top 100 作为识别提示。", false)
+		}
 	} else {
 		when := "实时"
 		if !v.ASR.Streaming() {
@@ -923,6 +935,9 @@ func asrEngines() []asr.Choice {
 			continue
 		}
 		ch.ID = ch.Config.Engine
+		if runtime.GOOS == "linux" && ch.Config.Engine == asr.EngineLocal {
+			ch.Label = "未选择（请选择在线引擎）"
+		}
 		out = append(out, ch)
 	}
 	return out
@@ -989,6 +1004,9 @@ func (v *View) chooseASR(next asr.Config) {
 // already holds a key, which an empty field keeps, or else none. It asks
 // the app once to look account up; "" is an account not complete yet.
 func (v *View) keyPlaceholder(account, none string) string {
+	if runtime.GOOS == "linux" {
+		none = strings.ReplaceAll(none, "macOS 钥匙串", "系统钥匙环")
+	}
 	if account == "" {
 		return none
 	}
@@ -1082,6 +1100,9 @@ func (v *View) omniFields(c *ui.Context) {
 
 // asrHelp says what the chosen engine does with the audio.
 func asrHelp(c asr.Config) string {
+	if runtime.GOOS == "linux" && !c.Online() {
+		return "请选择并保存在线识别服务；音频只会发往你选择的服务商。"
+	}
 	switch {
 	case c.Engine == asr.EngineOmni:
 		return "WebSocket 实时上传音频，松开按键后提交并等待最终转写；只识别你说的话，不生成对话回答。"
@@ -1096,14 +1117,32 @@ func asrHelp(c asr.Config) string {
 }
 
 func (v *View) refinement(c *ui.Context) {
+	if runtime.GOOS == "linux" {
+		notice(c, "linux-refinement", "Linux 不支持 Apple 本地润色。可关闭润色，或明确选择并配置 OpenAI 兼容接口；只发送文字和相关词库，不发送音频。", false)
+	}
 	group(c, "engine", "润色引擎", nil, func() {
 		row(c, "engine", func() {
-			label(c, "引擎", "默认 Apple 本地模型；失败不会自动切换到远端。")
-			if i := indexOf(engines, v.Config.Engine); segmented(c, "engine-seg", &i, engineLabels) {
+			help, labels := "默认 Apple 本地模型；失败不会自动切换到远端。", engineLabels
+			if runtime.GOOS == "linux" {
+				help, labels = "默认关闭；仅在明确配置后使用远端润色。", []string{"关闭", "OpenAI 兼容接口"}
+			}
+			label(c, "引擎", help)
+			if i := indexOf(engines, v.Config.Engine); segmented(c, "engine-seg", &i, labels) {
 				v.Config.Engine = engines[i]
+				if runtime.GOOS == "linux" {
+					if i == 0 {
+						v.Config.Mode = "off"
+					} else if v.Config.Mode == "off" {
+						v.Config.Mode = "light"
+					}
+				}
 			}
 		})
 		row(c, "mode", func() {
+			if runtime.GOOS == "linux" && v.Config.Engine == "local" {
+				label(c, "模式", "已关闭 AI 润色；本地替换词仍然生效。")
+				return
+			}
 			label(c, "模式", modeHelp(v.Config.Mode))
 			if i := indexOf(modes, v.Config.Mode); segmented(c, "mode-seg", &i, modeLabels) {
 				v.Config.Mode = modes[i]

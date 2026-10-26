@@ -2,6 +2,9 @@
 
 # go-voice macOS app
 
+For the experimental Linux desktop host, use the [Linux guide](docs/linux.md). The macOS toolchain and firmware staging described below are not required for Linux builds.
+
+
 `go-voice` is the macOS 26+ Apple Silicon desktop host for Go Voice, built with MyGo. Its independent Go module is `github.com/vfasky/my-ai-audio/gui`, and its release bundle identifier is `yz.sh.mygo-go-voice`. Local builds use `go-voice-debug.app` and `yz.sh.mygo-go-voice.debug`; all three helpers also append `.debug` to their identifiers, separating development and release TCC permission records.
 
 The native `go-voice` UI has five pages: device and current speech, vocabulary, speech recognition, AI refinement, and firmware installation, followed by the permissions onboarding; a separate App section of the sidebar holds the General page. It is dark only and follows the macOS 26 layout: a floating Liquid Glass sidebar with inset traffic lights, a toolbar over a soft scroll edge, and grouped-inset sections. Graphite cards, black wells, white primary capsules and a single orange accent reserved for live audio follow the design reference; the FoloToy AI Passport waveform mirrors the newest peaks outward from the centre and falls back to dim dots while idle; the same single well pulses orange during recognition, refinement and insertion. It scans without choosing a device automatically. A user-selected peripheral UUID is persisted for reconnects. The device page shows firmware, handshake state, waveform, RMS/peak, duration, partial transcription, final ASR original, refinement, and frame diagnostics. Audio is neither saved nor replayed.

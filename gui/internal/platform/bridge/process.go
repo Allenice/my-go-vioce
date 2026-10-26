@@ -12,7 +12,9 @@ import (
 	"github.com/vfasky/my-ai-audio/gui/internal/protocol"
 	"io"
 	"os/exec"
+	"runtime"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -119,6 +121,12 @@ func Start(ctx context.Context, path string, receive func(Event)) (*Process, err
 	ctx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(ctx, path)
 	cmd.WaitDelay = time.Second
+	if runtime.GOOS == "linux" {
+		// BlueZ keeps device connections at the system-service level. Give the
+		// helper time to release its notification FD and disconnect on exit.
+		cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+		cmd.WaitDelay = 3 * time.Second
+	}
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		cancel()

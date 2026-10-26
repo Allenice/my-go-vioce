@@ -1,6 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
+if [[ "$(uname -s)" == Linux ]]; then
+  if [[ -n "${1:-}" ]]; then echo 'Linux preview: run build.sh without macOS options.' >&2; exit 2; fi
+  exec ./scripts/build-linux.sh
+fi
 # --dev keeps the staging for the whole session, then rebuilds the signed
 # debug app and restarts it whenever the Go sources or configuration change.
 # `mygo dev` is not used: it spawns the app as its own child, so TCC treats

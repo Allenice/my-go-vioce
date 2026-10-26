@@ -25,6 +25,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -344,6 +345,11 @@ func (a *application) initialize() {
 		}
 	}
 	a.config.ASR = asr.Normalize(a.config.ASR)
+	// Never opt a Linux user into cloud audio or text processing. The local
+	// ASR sentinel stays until they explicitly choose and save an online engine.
+	if runtime.GOOS == "linux" && a.config.Refinement.Engine != "remote" {
+		a.config.Refinement.Mode = "off"
+	}
 	a.config.Jev = jev.Normalize(a.config.Jev)
 	a.applyASR()
 	a.readLoginItem()
@@ -399,6 +405,11 @@ func (a *application) initialize() {
 		},
 		RequestPermission: a.requestPermission,
 		OpenSettings: func(n permission.Name) {
+			if runtime.GOOS == "linux" {
+				a.queryPermissions()
+				a.view.Snapshot.Status = "请在系统设置中打开蓝牙；文字输出需要 xclip（X11）或 wl-copy（Wayland）"
+				return
+			}
 			if e := mygo.Shell.OpenExternal(permission.SettingsURL(n)); e != nil {
 				a.view.Snapshot.Status = "无法打开系统设置"
 			}
@@ -439,6 +450,11 @@ func (a *application) initialize() {
 		TestJev:          a.testJev,
 		DeleteJevKey:     a.deleteJevKey,
 		Configure: func(c refinement.Config, key string) {
+			if runtime.GOOS == "linux" && c.Engine == "local" && c.Mode != "off" {
+				a.setFeedback(c, "Linux 不支持 Apple 本地润色，请关闭润色或选择 OpenAI 兼容接口。", false)
+				a.refresh()
+				return
+			}
 			a.config.Refinement = c
 			saved := a.writeSettings()
 			if key == "" || saved != nil {
@@ -736,6 +752,9 @@ func (a *application) bindEscape(on bool) {
 }
 func nativePath(name string) string {
 	exe, _ := os.Executable()
+	if runtime.GOOS == "linux" {
+		return filepath.Join(filepath.Dir(exe), "native", name)
+	}
 	return filepath.Join(filepath.Dir(exe), "..", "Resources", "native", name+".app", "Contents", "MacOS", name)
 }
 func (a *application) startNative() {
@@ -800,6 +819,9 @@ func (a *application) startNative() {
 	}()
 }
 func (a *application) startInstaller() {
+	if runtime.GOOS == "linux" {
+		return
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return
@@ -1053,9 +1075,17 @@ func (a *application) onBluetooth(e bridge.Event) {
 		a.view.Snapshot.Connection = "Disconnected"
 		a.mark(paintView)
 		a.effects(a.coordinator.Disconnect())
+		if e.Message != "" {
+			a.coordinator.Status = e.Message
+			a.view.Snapshot.Status = e.Message
+		}
 	}
 }
 func (a *application) onSpeech(e bridge.Event) {
+	if e.Type == "error" && e.Message != "" && e.SessionID == a.coordinator.Generation {
+		a.effects(a.coordinator.Cancel(e.Message))
+		return
+	}
 	if e.Type == "permission" {
 		a.onPermission(e)
 		return
@@ -1190,6 +1220,10 @@ func (a *application) effects(effects []device.Effect) {
 			a.terms = a.store.Contextual(100)
 			a.correctionTerms = a.store.CorrectionTerms()
 			a.sessionPacks = a.config.Packs
+			if runtime.GOOS == "linux" && !a.config.ASR.Online() {
+				a.effects(a.coordinator.Cancel("请先在“语音识别”页选择并保存在线引擎；Linux 不支持 Apple 本地识别"))
+				return
+			}
 			if a.config.ASR.Online() {
 				a.startOnline(e.ID)
 			} else {
