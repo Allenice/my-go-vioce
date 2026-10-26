@@ -6,9 +6,9 @@
 
 ## Linux 桌面宿主与共享界面验证（2026-10-26）
 
-Build：Ubuntu 24.04 amd64 预览包 PASS，由 `scripts/build-linux.sh` 构建、`install.sh` 安装到 `~/.local/share/go-voice`，并从生成的桌面入口启动。Host tests：`./tools/validate.sh --static` 与 `./tools/validate.sh --gui` PASS（Go 测试、vet、gofmt、包内词典与打包检查）。Device tests：单台 Linux/X11 桌面 PASS：经 BlueZ 连接 Go Voice 工牌、用支付宝 MaaS 做整段识别并成功插入 Ghostty。该次听写时润色已配置为 OpenAI 兼容端点，但未单独核对润色质量。终端插入另用临时终端窗口复现：该窗口对 Ctrl+V 无反应、对 Ctrl+Shift+V 生效。未验证：Wayland 终端、Ghostty 以外的终端类、其他 Linux 桌面，以及已安装包的更新流程。
+Build：Ubuntu 24.04 amd64 预览包 PASS，由 `scripts/build-linux.sh` 构建、`install.sh` 安装到 `~/.local/share/go-voice`，并从生成的桌面入口启动。Host tests：`./tools/validate.sh --static` 与 `./tools/validate.sh --gui` PASS（Go 测试、vet、gofmt、包内词典与打包检查）。Device tests：单台 Linux/X11 桌面 PASS：经 BlueZ 连接 Go Voice 工牌、用支付宝 MaaS 做整段识别，并成功插入 Ghostty、GNOME 文本编辑器、文件管理器（Nautilus）搜索框与设置页搜索框。这些听写时润色已配置为 OpenAI 兼容端点，但未单独核对润色质量。插入还复现了两条按键路径的差异：临时终端窗口对 Ctrl+V 无反应、对 Ctrl+Shift+V 生效；GNOME 文本编辑器忽略以 `xdotool --window` 发往自身窗口的按键，对真实按键则正常插入，因此宿主现在统一以真实输入发送按键。GNOME Shell 概览不是可定位窗口：在那里听写只会把文字留在剪贴板，需手动粘贴。未验证：Wayland 终端、Ghostty 以外的终端类、其他 Linux 桌面，以及已安装包的更新流程。
 
-本轮改动包括：润色页操作栏固定在状态气泡上方；Linux 缺少 Apple 本地模型的提示并入引擎说明；「通用」页提供写入 XDG 自启项的登录启动，并显示正在运行的版本号和目录；窗口隐藏时再次启动会重新显示运行中的窗口。这些都在共享的界面与应用层代码里，因此 macOS 界面同样会变化；但本轮只在 Linux 宿主上运行过。
+本轮改动包括：润色页操作栏固定在状态气泡上方；Linux 缺少 Apple 本地模型的提示并入引擎说明；「通用」页提供写入 XDG 自启项的登录启动，并显示正在运行的版本号和目录；窗口隐藏时再次启动会重新显示运行中的窗口；听写粘贴改为真实按键发送，终端使用 Ctrl+Shift+V。这些都在共享的界面与应用层代码里，因此 macOS 界面同样会变化；但本轮只在 Linux 宿主上运行过。
 
 ### macOS 待检查项
 
