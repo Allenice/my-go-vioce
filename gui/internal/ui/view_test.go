@@ -721,9 +721,6 @@ func TestPermissionsOnboardingActions(t *testing.T) {
 }
 
 func TestGeneralPageTogglesOpenAtLogin(t *testing.T) {
-	if runtime.GOOS == "linux" {
-		t.Skip("Login Items UI is macOS-only")
-	}
 	var rec intents
 	v := testView(&rec)
 	tt := newTester(v)
@@ -738,10 +735,39 @@ func TestGeneralPageTogglesOpenAtLogin(t *testing.T) {
 	if err := tt.Click("登录时打开 go-voice"); err != nil || len(rec.login) != 2 || rec.login[1] {
 		t.Fatalf("disable: %v %v", err, rec.login)
 	}
+	if runtime.GOOS == "linux" {
+		// Linux has no Login Items pane to approve: the switch writes the
+		// desktop's autostart entry and reports nothing further.
+		return
+	}
 	v.Snapshot.OpenAtLogin, v.Snapshot.LoginApproval = false, true
 	tt.Frame()
 	if err := tt.Click("打开登录项"); err != nil || rec.loginItems != 1 {
 		t.Fatalf("login items: %v %d", err, rec.loginItems)
+	}
+}
+
+// TestGeneralPageNamesTheRunningBuild tells a preview build from an installed
+// one: the page shows the version and the directory being run.
+func TestGeneralPageNamesTheRunningBuild(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home directory")
+	}
+	var rec intents
+	v := testView(&rec)
+	v.Page = GeneralPage
+	v.Snapshot.Version = "0.6.2"
+	v.Snapshot.RunPath = filepath.Join(home, ".local", "share", "go-voice")
+	tt := newTester(v)
+	tt.Frame()
+	if !tt.HasText("0.6.2 · 运行于 ~/.local/share/go-voice") {
+		t.Fatalf("run path missing: %q", tt.Texts())
+	}
+	v.Snapshot.Version, v.Snapshot.RunPath = "", ""
+	tt.Frame()
+	if tt.HasText("运行于") {
+		t.Fatalf("empty build still names a path: %q", tt.Texts())
 	}
 }
 

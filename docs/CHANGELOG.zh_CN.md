@@ -6,7 +6,7 @@
 
 ## Unreleased
 
-- 新增实验性 Ubuntu/Debian 桌面构建：通过 BlueZ D-Bus 接收音频，复用 Go 解码、在线识别、词库和润色，使用系统钥匙环保存凭据，支持 X11 粘贴与 Wayland 剪贴板输出。打包 Linux helper、词典和用户安装脚本，不依赖 Swift、Rust 或 ESP-IDF。Linux 暂不提供 Apple 本地模型及 USB 固件安装，真实 Linux 桌面和工牌验证待完成。润色页的操作按钮固定在状态气泡上方，在较矮的窗口中也不会落到首屏之外；缺少 Apple 本地模型的提示改为并入引擎说明，不再单独占一行。
+- 新增实验性 Ubuntu/Debian 桌面构建：通过 BlueZ D-Bus 接收音频，复用 Go 解码、在线识别、词库和润色，使用系统钥匙环保存凭据，支持 X11 粘贴与 Wayland 剪贴板输出。打包 Linux helper、词典和用户安装脚本，不依赖 Swift、Rust 或 ESP-IDF。Linux 暂不提供 Apple 本地模型及 USB 固件安装，真实 Linux 桌面和工牌验证待完成。界面内说明安装方式：「通用」页可开「登录时打开」（写入 XDG 自启项），显示正在运行的版本号与目录以区分安装版和构建产物，窗口隐藏时再次启动会重新显示；润色页的操作按钮固定在状态气泡上方，在较矮的窗口中也不会落到首屏之外；缺少 Apple 本地模型的提示改为并入引擎说明，不再单独占一行。
 
 - X11 下向终端听写时改用 Ctrl+Shift+V 粘贴：经 WM_CLASS 识别为终端窗口（ghostty、gnome-terminal、konsole、xterm、kitty、wezterm 等）后以真实按键发送，因为终端会把 Ctrl+V 当作控制字符。已实测 Ghostty，其余终端类待验证。
 

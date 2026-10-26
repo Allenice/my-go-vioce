@@ -73,6 +73,10 @@ type Snapshot struct {
 	LoginApproval   bool
 	LoginFeedback   string
 	LoginFeedbackOK bool
+	// Version is the running build's version and RunPath the directory it runs
+	// from, so a preview build can be told from an installed one.
+	Version string
+	RunPath string
 }
 type Actions struct {
 	FirmwareScan, FirmwareInstall func()

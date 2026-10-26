@@ -102,6 +102,9 @@ func Run(icon, tray []byte) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	a := &application{ctx: ctx, stop: cancel, config: settings{Refinement: refinement.Default()}, permissions: permission.Set{}}
+	// A second launch, such as the app menu while the window is hidden in the
+	// tray, brings the running instance's window back instead of doing nothing.
+	mygo.App.OnSecondInstance(func([]string, string) { a.showMain() })
 	// The interface is designed dark only; keep the window chrome in step.
 	mygo.Theme.SetSource(mygo.ThemeDark)
 	// A menu-bar app: no Dock icon (LSUIElement in mygo.json from launch),
@@ -328,6 +331,10 @@ func (a *application) flush() {
 }
 func (a *application) initialize() {
 	a.installState = firmware.Initial()
+	a.view.Snapshot.Version = mygo.App.Version()
+	if exe, err := os.Executable(); err == nil {
+		a.view.Snapshot.RunPath = filepath.Dir(exe)
+	}
 	base, e := os.UserConfigDir()
 	if e != nil {
 		a.view.Snapshot.Status = "Application support unavailable"

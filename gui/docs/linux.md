@@ -68,6 +68,12 @@ Adjust the suffix for arm64. Keep the entire directory together: `go-voice`,
 or an older compatible one: CGO binaries depend on the target's libc/C++ runtime.
 Automatic updates and the macOS development watcher are not offered in this
 preview; rebuild and rerun the installer after closing the app to update it.
+After installation, launch Go Voice from the desktop application menu; the
+directory under `gui/build/` is then only a build output. General offers
+"Open at login", which writes an XDG autostart entry for the executable that is
+running, and "Running version", which names the version and directory in use, so
+a build copy can be told from the installed one. A second launch, such as a
+click on the menu entry while the window is hidden, reopens the running window.
 
 The repository's full `./tools/validate.sh` additionally builds firmware and
 still requires ESP-IDF 5.5.3. It is not required just to package the Linux host.
