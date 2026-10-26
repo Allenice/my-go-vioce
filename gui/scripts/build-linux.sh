@@ -18,7 +18,9 @@ staging="$(mktemp -d "$PWD/build/linux/.staging.XXXXXX")"
 trap 'rm -rf -- "$staging"' EXIT
 app="$staging/go-voice"
 mkdir -p "$app/native" "$app/resources/jieba" "$app/docs"
-go build -trimpath -o "$app/go-voice" .
+# Report the release version of mygo.json: mygo only reads it from an app bundle.
+version="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' mygo.json | head -1)"
+go build -trimpath -ldflags "-X main.version=$version" -o "$app/go-voice" .
 go build -trimpath -o "$app/native/BluetoothHelper" ./cmd/linux-bluetooth
 go build -trimpath -o "$app/native/SpeechBridge" ./cmd/linux-text
 jieba_module="$(go list -m -f '{{.Dir}}' github.com/yanyiwu/gojieba)"

@@ -3,6 +3,7 @@ package main
 import (
 	_ "embed"
 
+	"github.com/egoist/mygo"
 	"github.com/vfasky/my-ai-audio/gui/internal/app"
 )
 
@@ -16,4 +17,13 @@ var icon []byte
 //go:embed resources/tray.png
 var tray []byte
 
-func main() { app.Run(icon, tray) }
+// version is the packaged release version, set by scripts/build-linux.sh from
+// mygo.json so the Linux host reports the same version as the macOS app.
+var version string
+
+func main() {
+	if version != "" {
+		mygo.App.SetVersion(version)
+	}
+	app.Run(icon, tray)
+}
