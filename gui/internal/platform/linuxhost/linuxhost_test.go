@@ -218,9 +218,10 @@ func TestPasteKeysFollowTheTargetWindow(t *testing.T) {
 		want        []string
 	}{
 		{"terminal", `WM_CLASS(STRING) = "ghostty", "com.mitchellh.ghostty"`, "xprop", []string{"key", "--clearmodifiers", "ctrl+shift+v"}},
-		{"browser", `WM_CLASS(STRING) = "google-chrome", "Google-chrome"`, "xprop", []string{"key", "--window", "12", "--clearmodifiers", "ctrl+v"}},
+		{"browser", `WM_CLASS(STRING) = "google-chrome", "Google-chrome"`, "xprop", []string{"key", "--clearmodifiers", "ctrl+v"}},
+		{"gtk4 file manager", `WM_CLASS(STRING) = "org.gnome.Nautilus", "Org.gnome.Nautilus"`, "xprop", []string{"key", "--clearmodifiers", "ctrl+v"}},
 		{"terminal without xprop", "kitty", "xdotool", []string{"key", "--clearmodifiers", "ctrl+shift+v"}},
-		{"unknown class", "", "none", []string{"key", "--window", "12", "--clearmodifiers", "ctrl+v"}},
+		{"unknown class", "", "none", []string{"key", "--clearmodifiers", "ctrl+v"}},
 	} {
 		run := func(_ context.Context, name string, args []string, _ string, _ bool) (string, error) {
 			if name == tc.probe {

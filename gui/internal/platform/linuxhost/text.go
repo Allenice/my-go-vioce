@@ -187,15 +187,16 @@ func (t *textSession) insert(id uint32, text string) {
 	}()
 }
 
-// pasteArgs builds the xdotool command that pastes into window. A terminal
-// reads ctrl+v as a literal control character, so it pastes with ctrl+shift+v
-// and takes the keys as real input (XTEST) instead of a sent event, which GTK4
-// terminals such as ghostty ignore. Other windows keep the targeted ctrl+v.
+// pasteArgs builds the xdotool command that pastes into the window the caller
+// just confirmed is still focused. The keys always go in as real input (XTEST):
+// GTK4 applications, which include terminals, the file manager, the text editor
+// and system settings, ignore targeted synthetic events. A terminal pastes with
+// ctrl+shift+v, because it reads ctrl+v as a literal control character.
 func pasteArgs(ctx context.Context, run runner, window string) []string {
 	if terminalWindow(ctx, run, window) {
 		return []string{"key", "--clearmodifiers", "ctrl+shift+v"}
 	}
-	return []string{"key", "--window", window, "--clearmodifiers", "ctrl+v"}
+	return []string{"key", "--clearmodifiers", "ctrl+v"}
 }
 
 // terminalWindow reports whether window is a terminal emulator, from WM_CLASS.

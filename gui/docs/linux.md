@@ -102,18 +102,21 @@ storage. The saved-key hint searches item metadata without reading the secret.
 | Capability | X11 | Wayland |
 | --- | --- | --- |
 | Clipboard | `xclip` | `wl-copy` |
-| Automatic paste | `xdotool`, only while the original target remains focused; terminals get Ctrl+Shift+V | Manual paste after copying |
+| Automatic paste | `xdotool` as real key input, only while the original target remains focused; terminals get Ctrl+Shift+V | Manual paste after copying |
 | Badge Enter/Delete/Clear | Sent to the focused app with `xdotool` | Not implemented |
 | Local Apple models | Unavailable | Unavailable |
 | USB firmware installation | Unavailable | Unavailable |
 
 Text stays in the clipboard after output; this preview does not restore earlier
 clipboard content. When an X11 user changes windows during dictation, the app
-copies the result without switching windows or automatically pasting it. A
+copies the result without switching windows or automatically pasting it. Keys
+are injected as real input, because GTK4 applications (Nautilus, Text Editor,
+Settings, terminals) ignore synthetic events addressed to their window. A
 terminal reads Ctrl+V as a control character rather than a paste, so a window
 identified as a terminal (WM_CLASS through `xprop` or a newer `xdotool`: ghostty,
 gnome-terminal, konsole, xterm, kitty, alacritty, wezterm and similar) is pasted
-with Ctrl+Shift+V instead. Apps whose paste shortcut is still another combination
+with Ctrl+Shift+V instead. The GNOME Shell overview is not a window this app can
+target, so text dictated there stays in the clipboard for a manual paste. Apps whose paste shortcut is still another combination
 may require manual paste. Wayland users also paste manually; XWayland does not
 enable X11 injection into native Wayland applications. Missing `xdotool` degrades
 to clipboard output. Keep the window open if the desktop does not show the tray

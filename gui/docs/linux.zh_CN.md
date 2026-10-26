@@ -87,15 +87,18 @@ arm64 请替换后缀。保留整个目录，包括 `go-voice`、`native/`、`re
 | 能力 | X11 | Wayland |
 | --- | --- | --- |
 | 剪贴板 | `xclip` | `wl-copy` |
-| 自动粘贴 | 使用 `xdotool`，仅原目标窗口仍聚焦时执行；终端用 Ctrl+Shift+V | 复制后手动粘贴 |
+| 自动粘贴 | 使用 `xdotool` 以真实按键发送，仅原目标窗口仍聚焦时执行；终端用 Ctrl+Shift+V | 复制后手动粘贴 |
 | 工牌回车、删除、清空 | 使用 `xdotool` 发往当前聚焦应用 | 暂未实现 |
 | Apple 本地模型 | 不可用 | 不可用 |
 | USB 固件安装 | 不可用 | 不可用 |
 
 输出后文字保留在剪贴板，此预览版不恢复之前的剪贴板内容。X11 下若说话期间切换了窗口，
-只复制结果，不切回窗口或自动粘贴。终端读取 Ctrl+V 为控制字符而非粘贴，因此识别到
-终端窗口（WM_CLASS，经 `xprop` 或新版 `xdotool` 读取，如 ghostty、gnome-terminal、
-konsole、xterm、kitty、alacritty、wezterm）时改用 Ctrl+Shift+V。其他粘贴快捷键仍不是
+只复制结果，不切回窗口或自动粘贴。按键以真实输入（XTEST）方式发送，因为 GTK4 应用
+（文件管理器、文本编辑器、设置、终端）会忽略发往自身窗口的合成事件。终端读取 Ctrl+V
+为控制字符而非粘贴，因此识别到终端窗口（WM_CLASS，经 `xprop` 或新版 `xdotool` 读取，
+如 ghostty、gnome-terminal、konsole、xterm、kitty、alacritty、wezterm）时改用
+Ctrl+Shift+V。GNOME Shell 的概览搜索不是可定位的窗口，在那里听写只会把文字留在
+剪贴板，需要手动粘贴。其他粘贴快捷键仍不是
 Ctrl+V 的应用可能需要手动粘贴。Wayland 也需手动粘贴，XWayland 不会让 X11 输入方式
 适用于原生 Wayland 应用。缺少 `xdotool` 时降级为剪贴板输出；若桌面不显示托盘图标，
 请保持窗口打开。
