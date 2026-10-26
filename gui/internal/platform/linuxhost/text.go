@@ -170,7 +170,7 @@ func (t *textSession) insert(id uint32, text string) {
 			// Do not activate a window or paste into a new app the user switched
 			// to while dictating. The clipboard remains available either way.
 			if err == nil && current == target && ctx.Err() == nil {
-				if _, err = t.run(ctx, "xdotool", []string{"key", "--window", target, "--clearmodifiers", "ctrl+v"}, "", false); err == nil {
+				if _, err = t.run(ctx, "xdotool", pasteArgs(ctx, t.run, target), "", false); err == nil {
 					outcome = "已粘贴；文字保留在剪贴板"
 				}
 			}
@@ -185,4 +185,47 @@ func (t *textSession) insert(id uint32, text string) {
 		t.id = 0
 		t.cancel = nil
 	}()
+}
+
+// pasteArgs builds the xdotool command that pastes into window. A terminal
+// reads ctrl+v as a literal control character, so it pastes with ctrl+shift+v
+// and takes the keys as real input (XTEST) instead of a sent event, which GTK4
+// terminals such as ghostty ignore. Other windows keep the targeted ctrl+v.
+func pasteArgs(ctx context.Context, run runner, window string) []string {
+	if terminalWindow(ctx, run, window) {
+		return []string{"key", "--clearmodifiers", "ctrl+shift+v"}
+	}
+	return []string{"key", "--window", window, "--clearmodifiers", "ctrl+v"}
+}
+
+// terminalWindow reports whether window is a terminal emulator, from WM_CLASS.
+// xprop is preferred because xdotool builds without getwindowclassname exist.
+func terminalWindow(ctx context.Context, run runner, window string) bool {
+	if out, err := run(ctx, "xprop", []string{"-id", window, "WM_CLASS"}, "", true); err == nil {
+		return terminalClass(out)
+	}
+	out, err := run(ctx, "xdotool", []string{"getwindowclassname", window}, "", true)
+	return err == nil && terminalClass(out)
+}
+
+// terminalClasses holds lowercase WM_CLASS names whose paste is ctrl+shift+v.
+var terminalClasses = map[string]bool{
+	"com.mitchellh.ghostty": true, "ghostty": true,
+	"gnome-terminal": true, "gnome-terminal-server": true, "org.gnome.console": true, "kgx": true,
+	"konsole": true, "xterm": true, "uxterm": true, "urxvt": true, "rxvt": true,
+	"alacritty": true, "kitty": true, "wezterm": true, "org.wezfurlong.wezterm": true,
+	"tilix": true, "terminator": true, "terminator-server": true, "xfce4-terminal": true,
+	"lxterminal": true, "mate-terminal": true, "qterminal": true, "sakura": true,
+	"st": true, "foot": true, "footclient": true, "terminology": true,
+	"blackbox": true, "com.raggesilver.blackbox": true, "tabby": true, "hyper": true,
+}
+
+// terminalClass picks the WM_CLASS names out of a WM_CLASS line or a bare name.
+func terminalClass(out string) bool {
+	for _, field := range strings.Split(strings.ToLower(out), `"`) {
+		if name := strings.Trim(field, " \t\r\n,"); terminalClasses[name] {
+			return true
+		}
+	}
+	return false
 }

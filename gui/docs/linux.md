@@ -96,18 +96,22 @@ storage. The saved-key hint searches item metadata without reading the secret.
 | Capability | X11 | Wayland |
 | --- | --- | --- |
 | Clipboard | `xclip` | `wl-copy` |
-| Automatic paste | `xdotool`, only while the original target remains focused | Manual paste after copying |
+| Automatic paste | `xdotool`, only while the original target remains focused; terminals get Ctrl+Shift+V | Manual paste after copying |
 | Badge Enter/Delete/Clear | Sent to the focused app with `xdotool` | Not implemented |
 | Local Apple models | Unavailable | Unavailable |
 | USB firmware installation | Unavailable | Unavailable |
 
 Text stays in the clipboard after output; this preview does not restore earlier
 clipboard content. When an X11 user changes windows during dictation, the app
-copies the result without switching windows or automatically pasting it. Apps
-whose paste shortcut is not Ctrl+V, including some terminals, may require manual
-paste. Wayland users also paste manually; XWayland does not enable X11 injection
-into native Wayland applications. Missing `xdotool` degrades to clipboard output.
-Keep the window open if the desktop does not show the tray icon.
+copies the result without switching windows or automatically pasting it. A
+terminal reads Ctrl+V as a control character rather than a paste, so a window
+identified as a terminal (WM_CLASS through `xprop` or a newer `xdotool`: ghostty,
+gnome-terminal, konsole, xterm, kitty, alacritty, wezterm and similar) is pasted
+with Ctrl+Shift+V instead. Apps whose paste shortcut is still another combination
+may require manual paste. Wayland users also paste manually; XWayland does not
+enable X11 injection into native Wayland applications. Missing `xdotool` degrades
+to clipboard output. Keep the window open if the desktop does not show the tray
+icon.
 
 The Bluetooth helper uses BlueZ D-Bus, acknowledged Control writes, and
 `AcquireNotify` for audio. It requires a negotiated MTU of at least 185, validates

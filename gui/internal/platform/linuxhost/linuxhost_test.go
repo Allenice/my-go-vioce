@@ -193,3 +193,73 @@ func TestClipboardFailureIsNotSuccess(t *testing.T) {
 		t.Fatalf("%+v", e)
 	}
 }
+func TestTerminalClassRecognition(t *testing.T) {
+	for _, tc := range []struct {
+		in       string
+		terminal bool
+	}{
+		{`WM_CLASS(STRING) = "ghostty", "com.mitchellh.ghostty"`, true},
+		{`WM_CLASS(STRING) = "gnome-terminal-server", "Gnome-terminal"`, true},
+		{`WM_CLASS(STRING) = "Alacritty", "Alacritty"`, true},
+		{`WM_CLASS(STRING) = "google-chrome", "Google-chrome"`, false},
+		{`WM_CLASS(STRING) = "st-256color", "St"`, true},
+		{"kitty", true},
+		{"", false},
+	} {
+		if got := terminalClass(tc.in); got != tc.terminal {
+			t.Fatalf("%q: %v", tc.in, got)
+		}
+	}
+}
+func TestPasteKeysFollowTheTargetWindow(t *testing.T) {
+	for _, tc := range []struct {
+		name, class string
+		probe       string // tool that answers the class query
+		want        []string
+	}{
+		{"terminal", `WM_CLASS(STRING) = "ghostty", "com.mitchellh.ghostty"`, "xprop", []string{"key", "--clearmodifiers", "ctrl+shift+v"}},
+		{"browser", `WM_CLASS(STRING) = "google-chrome", "Google-chrome"`, "xprop", []string{"key", "--window", "12", "--clearmodifiers", "ctrl+v"}},
+		{"terminal without xprop", "kitty", "xdotool", []string{"key", "--clearmodifiers", "ctrl+shift+v"}},
+		{"unknown class", "", "none", []string{"key", "--window", "12", "--clearmodifiers", "ctrl+v"}},
+	} {
+		run := func(_ context.Context, name string, args []string, _ string, _ bool) (string, error) {
+			if name == tc.probe {
+				if tc.probe == "xdotool" && args[0] != "getwindowclassname" {
+					return "", errors.New("unexpected xdotool call")
+				}
+				return tc.class, nil
+			}
+			return "", errors.New("unavailable")
+		}
+		if got := pasteArgs(context.Background(), run, "12"); strings.Join(got, " ") != strings.Join(tc.want, " ") {
+			t.Fatalf("%s: %v", tc.name, got)
+		}
+	}
+}
+func TestTerminalInsertReportsPaste(t *testing.T) {
+	output := &capture{}
+	var pasted []string
+	tx := textSession{out: emitter{out: output}, run: func(_ context.Context, name string, args []string, _ string, _ bool) (string, error) {
+		switch {
+		case name == "xclip":
+			return "", nil
+		case name == "xprop":
+			return `WM_CLASS(STRING) = "ghostty", "com.mitchellh.ghostty"`, nil
+		case name == "xdotool" && args[0] == "getactivewindow":
+			return "12", nil
+		case name == "xdotool" && args[0] == "key":
+			pasted = args
+			return "", nil
+		}
+		return "", errors.New("unexpected " + name)
+	}}
+	tx.begin(context.Background(), 1)
+	tx.insert(1, "你好")
+	tx.workers.Wait()
+	if strings.Join(pasted, " ") != "key --clearmodifiers ctrl+shift+v" {
+		t.Fatalf("pasted %v", pasted)
+	}
+	if e := output.events(t); len(e) != 1 || e[0].Type != "inserted" {
+		t.Fatalf("%+v", e)
+	}
+}

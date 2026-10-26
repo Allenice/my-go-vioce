@@ -84,15 +84,18 @@ arm64 请替换后缀。保留整个目录，包括 `go-voice`、`native/`、`re
 | 能力 | X11 | Wayland |
 | --- | --- | --- |
 | 剪贴板 | `xclip` | `wl-copy` |
-| 自动粘贴 | 使用 `xdotool`，仅原目标窗口仍聚焦时执行 | 复制后手动粘贴 |
+| 自动粘贴 | 使用 `xdotool`，仅原目标窗口仍聚焦时执行；终端用 Ctrl+Shift+V | 复制后手动粘贴 |
 | 工牌回车、删除、清空 | 使用 `xdotool` 发往当前聚焦应用 | 暂未实现 |
 | Apple 本地模型 | 不可用 | 不可用 |
 | USB 固件安装 | 不可用 | 不可用 |
 
 输出后文字保留在剪贴板，此预览版不恢复之前的剪贴板内容。X11 下若说话期间切换了窗口，
-只复制结果，不切回窗口或自动粘贴。部分终端等应用的粘贴快捷键不是 Ctrl+V，可能需要
-手动粘贴。Wayland 也需手动粘贴，XWayland 不会让 X11 输入方式适用于原生 Wayland 应用。
-缺少 `xdotool` 时降级为剪贴板输出；若桌面不显示托盘图标，请保持窗口打开。
+只复制结果，不切回窗口或自动粘贴。终端读取 Ctrl+V 为控制字符而非粘贴，因此识别到
+终端窗口（WM_CLASS，经 `xprop` 或新版 `xdotool` 读取，如 ghostty、gnome-terminal、
+konsole、xterm、kitty、alacritty、wezterm）时改用 Ctrl+Shift+V。其他粘贴快捷键仍不是
+Ctrl+V 的应用可能需要手动粘贴。Wayland 也需手动粘贴，XWayland 不会让 X11 输入方式
+适用于原生 Wayland 应用。缺少 `xdotool` 时降级为剪贴板输出；若桌面不显示托盘图标，
+请保持窗口打开。
 
 蓝牙 helper 使用 BlueZ D-Bus、带响应的 Control 写入，以及 Audio 的 `AcquireNotify`。
 要求协商后的 MTU 至少为 185，验证 info 中的 `hello`，订阅 Control 和 Audio 后才发送
